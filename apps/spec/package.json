@@ -1,0 +1,10 @@
+{
+  "name": "spec",
+  "private": true,
+  "scripts": {
+    "build": "dotnet build",
+    "lint": "dotnet csharpier format .",
+    "tests": "dotnet test",
+    "cli": "dotenvx run -- dotnet run"
+  }
+}
