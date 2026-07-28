@@ -1,0 +1,8 @@
+{
+  "name": "stdio",
+  "private": true,
+  "scripts": {
+    "build": "go build -o stdio .",
+    "lint": "go vet ./..."
+  }
+}

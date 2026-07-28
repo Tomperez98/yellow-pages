@@ -19,7 +19,7 @@ public static class YellowPagesSpec
                     // Non-admin callers get NotAuthorized
                     return Expect
                         .That<CreateCountryResponse>(
-                            r => r is CreateCountryResponse.NotAuthorized,
+                            r => r is CreateCountryResponse.Forbidden,
                             "only platform admins are authorized to do this action"
                         )
                         .SameState();
@@ -28,7 +28,7 @@ public static class YellowPagesSpec
                     // Empty or whitespace code returns InvalidData
                     return Expect
                         .That<CreateCountryResponse>(
-                            r => r is CreateCountryResponse.InvalidData,
+                            r => r is CreateCountryResponse.BadRequest,
                             "code cannot be empty"
                         )
                         .SameState();
@@ -47,13 +47,14 @@ public static class YellowPagesSpec
                 return Expect
                     .That<CreateCountryResponse>(
                         r =>
-                            r is CreateCountryResponse.Ok { CountryId: var id } && id != Guid.Empty,
+                            r is CreateCountryResponse.Created { CountryId: var id }
+                            && id != Guid.Empty,
                         "successful creation returns Ok with a valid CountryId"
                     )
                     .ThenState<YellowPagesState>(
                         (resp, s) =>
                         {
-                            var id = ((CreateCountryResponse.Ok)resp).CountryId;
+                            var id = ((CreateCountryResponse.Created)resp).CountryId;
                             Invariant.Assert(
                                 id.Version == 7,
                                 "generated country id is not UUID v7"
@@ -65,7 +66,7 @@ public static class YellowPagesSpec
                                 "duplicate country codes"
                             );
                         },
-                        mock: () => new CreateCountryResponse.Ok(Guid.CreateVersion7())
+                        mock: () => new CreateCountryResponse.Created(Guid.CreateVersion7())
                     );
             }
         );
@@ -81,7 +82,7 @@ public static class YellowPagesSpec
                     // Non-admin callers get NotAuthorized
                     return Expect
                         .That<UpdateCountryResponse>(
-                            r => r is UpdateCountryResponse.NotAuthorized,
+                            r => r is UpdateCountryResponse.Forbidden,
                             "only platform admins are authorized to do this action"
                         )
                         .SameState();
@@ -90,7 +91,7 @@ public static class YellowPagesSpec
                     // Empty or whitespace code returns ValidationFailed
                     return Expect
                         .That<UpdateCountryResponse>(
-                            r => r is UpdateCountryResponse.ValidationFailed,
+                            r => r is UpdateCountryResponse.BadRequest,
                             "code cannot be empty"
                         )
                         .SameState();
@@ -148,7 +149,7 @@ public static class YellowPagesSpec
                     // Non-admin callers get NotAuthorized
                     return Expect
                         .That<DeleteCountryResponse>(
-                            r => r is DeleteCountryResponse.NotAuthorized,
+                            r => r is DeleteCountryResponse.Forbidden,
                             "only platform admins are authorized to do this action"
                         )
                         .SameState();
@@ -189,12 +190,12 @@ public static class YellowPagesSpec
                 .From<CreateCountryRequest, CreateCountryResponse, UpdateCountryRequest>(
                     "CreateCountry"
                 )
-                .When((_, resp) => resp is CreateCountryResponse.Ok)
+                .When((_, resp) => resp is CreateCountryResponse.Created)
                 .As(
                     (req, resp) =>
                         new UpdateCountryRequest(
                             req.Claims,
-                            ((CreateCountryResponse.Ok)resp).CountryId,
+                            ((CreateCountryResponse.Created)resp).CountryId,
                             req.Code
                         )
                 )
@@ -206,12 +207,12 @@ public static class YellowPagesSpec
                 .From<CreateCountryRequest, CreateCountryResponse, DeleteCountryRequest>(
                     "CreateCountry"
                 )
-                .When((_, resp) => resp is CreateCountryResponse.Ok)
+                .When((_, resp) => resp is CreateCountryResponse.Created)
                 .As(
                     (req, resp) =>
                         new DeleteCountryRequest(
                             req.Claims,
-                            ((CreateCountryResponse.Ok)resp).CountryId
+                            ((CreateCountryResponse.Created)resp).CountryId
                         )
                 )
         );

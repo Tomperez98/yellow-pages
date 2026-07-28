@@ -1,7 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -52,7 +51,7 @@ public class HttpTarget(HttpClient http, string jwtSecret) : ITarget
 
         var resp = await http.SendAsync(msg);
         var respBody = await resp.Content.ReadAsStringAsync();
-        var status = (int)resp.StatusCode;
+        var status = resp.StatusCode;
 
         if (resp.IsSuccessStatusCode)
             return new TargetResponse.Ok(status, respBody);
@@ -63,21 +62,19 @@ public class HttpTarget(HttpClient http, string jwtSecret) : ITarget
     private string CreateJwt(Claims c)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-        List<Claim> claims =
-        [
-            new("sub", c.Sub),
-            new("role", c.Role),
-            new("org_id", c.OrgId),
-            new("org_role", c.OrgRole),
-            new("orgs", JsonSerializer.Serialize(c.Orgs)),
-        ];
+        ;
 
         var token = new JwtSecurityToken(
-            claims: claims,
+            claims:
+            [
+                new("sub", c.Sub),
+                new("role", c.Role),
+                new("org_id", c.OrgId),
+                new("org_role", c.OrgRole),
+                new("orgs", JsonSerializer.Serialize(c.Orgs)),
+            ],
             expires: DateTimeOffset.FromUnixTimeSeconds(9999999999).UtcDateTime,
-            signingCredentials: creds
+            signingCredentials: new(key, SecurityAlgorithms.HmacSha256)
         );
 
         return new JwtSecurityTokenHandler().WriteToken(token);

@@ -1,159 +1,58 @@
-# Turborepo starter
+# Yellow Pages — Spec & Conformance
 
-This Turborepo starter is maintained by the Turborepo core team.
+Spec-driven testing for the Yellow Pages API using [Microsoft Accordant](https://github.com/microsoft/accordant). A single spec generates tests that run against three independent implementations of the same business logic, verifying they behave identically.
 
-## Using this example
+## Targets
 
-Run the following command:
+The `ITarget` interface defines the bridge between the spec runner and an implementation:
 
-```sh
-npx create-turbo@latest
+```
+ITarget
+├── AsyncReset()          — wipe state before each test case
+└── AsyncSend<T>(T)       — send a request, get back a TargetResponse
 ```
 
-## What's inside?
+Three targets exist, each implementing the same CRUD operations (create/update/delete countries):
 
-This Turborepo includes the following packages/apps:
+| Target | Implementation | Communication | Use case |
+|--------|---------------|---------------|----------|
+| `inmemory` | C# (`InMemoryServer`) | Direct method calls | Fastest feedback during spec authoring |
+| `http` | TypeScript/Bun (`apps/server`) | HTTP + JWT | Validates the real server over the wire |
+| `stdio` | Go (`apps/stdio`) | JSON-lines over stdin/stdout | Validates a compiled binary with no network |
 
-### Apps and Packages
+## How stdio works
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+The Go binary reads JSON-lines from stdin and writes one JSON-line response per line. The C# `StdioTarget` spawns the binary as a child process and talks this protocol over pipes.
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+**Envelope:**
 
-### Utilities
+```
+→ {"type":"create_country", "payload":{"code":"US","claims":{...}}}
+← {"status":201, "result":{"CountryId":"019f..."}}
 
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo build
+→ {"type":"reset"}
+← {"status":204}
 ```
 
-Without global `turbo`, use your package manager:
+Each operation gets its own typed payload struct. Error responses omit `result` and include `error`:
 
-```sh
-cd my-turborepo
-npx turbo build
-bun dlx turbo build
-bun exec turbo build
+```
+← {"status":409, "error":"Country already exists"}
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+No JWT — claims are passed inline since stdio is a trusted local pipe.
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo build --filter=docs
-```
-
-Without global `turbo`:
+## Running
 
 ```sh
-npx turbo build --filter=docs
-bun exec turbo build --filter=docs
-bun exec turbo build --filter=docs
+# All three targets (requires Go, Bun, .NET)
+bun run compliance
+
+# In-memory + stdio only (no server needed)
+bun run conformance
+
+# Single target
+dotnet run --project apps/spec -- conformance --target inmemory
+bun run --cwd apps/stdio build && dotnet run --project apps/spec -- conformance --target stdio
+dotnet run --project apps/spec -- conformance --target http --url http://localhost:3000 --jwt-secret <secret>
 ```
-
-### Develop
-
-To develop all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo dev
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo dev
-bun exec turbo dev
-bun exec turbo dev
-```
-
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo dev --filter=web
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo dev --filter=web
-bun exec turbo dev --filter=web
-bun exec turbo dev --filter=web
-```
-
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-bun exec turbo login
-bun exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo link
-bun exec turbo link
-bun exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)

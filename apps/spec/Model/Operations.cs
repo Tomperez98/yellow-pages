@@ -14,13 +14,13 @@ public abstract record CreateCountryResponse
 {
     private CreateCountryResponse() { }
 
-    public sealed record Ok(Guid CountryId) : CreateCountryResponse;
+    public sealed record Created(Guid CountryId) : CreateCountryResponse;
 
     public sealed record Conflict : CreateCountryResponse;
 
-    public sealed record InvalidData : CreateCountryResponse;
+    public sealed record BadRequest : CreateCountryResponse;
 
-    public sealed record NotAuthorized : CreateCountryResponse;
+    public sealed record Forbidden : CreateCountryResponse;
 }
 
 public record UpdateCountryRequest(Claims Claims, Guid CountryId, string Code);
@@ -35,9 +35,9 @@ public abstract record UpdateCountryResponse
 
     public sealed record Conflict : UpdateCountryResponse;
 
-    public sealed record ValidationFailed : UpdateCountryResponse;
+    public sealed record BadRequest : UpdateCountryResponse;
 
-    public sealed record NotAuthorized : UpdateCountryResponse;
+    public sealed record Forbidden : UpdateCountryResponse;
 }
 
 public record DeleteCountryRequest(Claims Claims, Guid CountryId);
@@ -50,5 +50,5 @@ public abstract record DeleteCountryResponse
 
     public sealed record NotFound : DeleteCountryResponse;
 
-    public sealed record NotAuthorized : DeleteCountryResponse;
+    public sealed record Forbidden : DeleteCountryResponse;
 }

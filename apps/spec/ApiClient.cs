@@ -1,3 +1,4 @@
+using System.Net;
 using Spec.Model;
 using Spec.Targets;
 
@@ -12,12 +13,14 @@ public class ApiClient(ITarget target)
         var r = await target.AsyncSend(request);
         return r switch
         {
-            TargetResponse.Ok { Status: 200 } ok => new CreateCountryResponse.Ok(
-                ok.Deserialize<CreateOk>().CountryId
-            ),
-            TargetResponse.Err { Status: 409 } => new CreateCountryResponse.Conflict(),
-            TargetResponse.Err { Status: 400 } => new CreateCountryResponse.InvalidData(),
-            TargetResponse.Err { Status: 403 } => new CreateCountryResponse.NotAuthorized(),
+            TargetResponse.Ok { Status: HttpStatusCode.Created } ok =>
+                new CreateCountryResponse.Created(ok.Deserialize<CreateOk>().CountryId),
+            TargetResponse.Err { Status: HttpStatusCode.Conflict } =>
+                new CreateCountryResponse.Conflict(),
+            TargetResponse.Err { Status: HttpStatusCode.BadRequest } =>
+                new CreateCountryResponse.BadRequest(),
+            TargetResponse.Err { Status: HttpStatusCode.Forbidden } =>
+                new CreateCountryResponse.Forbidden(),
             _ => throw new InvalidOperationException($"Unexpected response: {r}"),
         };
     }
@@ -27,11 +30,15 @@ public class ApiClient(ITarget target)
         var r = await target.AsyncSend(request);
         return r switch
         {
-            TargetResponse.Ok { Status: 200 } => new UpdateCountryResponse.Ok(),
-            TargetResponse.Err { Status: 404 } => new UpdateCountryResponse.NotFound(),
-            TargetResponse.Err { Status: 409 } => new UpdateCountryResponse.Conflict(),
-            TargetResponse.Err { Status: 400 } => new UpdateCountryResponse.ValidationFailed(),
-            TargetResponse.Err { Status: 403 } => new UpdateCountryResponse.NotAuthorized(),
+            TargetResponse.Ok { Status: HttpStatusCode.OK } => new UpdateCountryResponse.Ok(),
+            TargetResponse.Err { Status: HttpStatusCode.NotFound } =>
+                new UpdateCountryResponse.NotFound(),
+            TargetResponse.Err { Status: HttpStatusCode.Conflict } =>
+                new UpdateCountryResponse.Conflict(),
+            TargetResponse.Err { Status: HttpStatusCode.BadRequest } =>
+                new UpdateCountryResponse.BadRequest(),
+            TargetResponse.Err { Status: HttpStatusCode.Forbidden } =>
+                new UpdateCountryResponse.Forbidden(),
             _ => throw new InvalidOperationException($"Unexpected response: {r}"),
         };
     }
@@ -41,9 +48,11 @@ public class ApiClient(ITarget target)
         var r = await target.AsyncSend(request);
         return r switch
         {
-            TargetResponse.Ok { Status: 200 } => new DeleteCountryResponse.Ok(),
-            TargetResponse.Err { Status: 404 } => new DeleteCountryResponse.NotFound(),
-            TargetResponse.Err { Status: 403 } => new DeleteCountryResponse.NotAuthorized(),
+            TargetResponse.Ok { Status: HttpStatusCode.OK } => new DeleteCountryResponse.Ok(),
+            TargetResponse.Err { Status: HttpStatusCode.NotFound } =>
+                new DeleteCountryResponse.NotFound(),
+            TargetResponse.Err { Status: HttpStatusCode.Forbidden } =>
+                new DeleteCountryResponse.Forbidden(),
             _ => throw new InvalidOperationException($"Unexpected response: {r}"),
         };
     }

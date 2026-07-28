@@ -40,7 +40,7 @@ function createCountry(code: string, role: string): ResponseResult {
 
 	const id = Bun.randomUUIDv7();
 	countries.push({ id, code });
-	return { status: 200, data: { CountryId: id } };
+	return { status: 201, data: { CountryId: id } };
 }
 
 function updateCountry(id: string, code: string, role: string): ResponseResult {
