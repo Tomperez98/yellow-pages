@@ -7,11 +7,17 @@ public class CountryCrudScenario : IScenario
 {
     private static readonly Claims Admin = new("admin", "admin", "", "", []);
 
-    public TestGenerationOptions Options => new() { MaxDepth = 5 };
-
-    public InputSet BuildInputs(Spec<YellowPagesState> spec)
+    public TestSuite BuildTests(Spec<YellowPagesState> spec, YellowPagesState initialState)
     {
-        // Auto-derive UpdateCountry/DeleteCountry from a successful CreateCountry
+        ConfigureDerivations(spec);
+        var inputs = BuildInputs(spec);
+        return new TestSuite.Sequential(
+            spec.GenerateTests(initialState, inputs, new() { MaxDepth = 5 })
+        );
+    }
+
+    private static void ConfigureDerivations(Spec<YellowPagesState> spec)
+    {
         spec.ConfigureDerivations(
             "UpdateCountry",
             Derive
@@ -44,7 +50,10 @@ public class CountryCrudScenario : IScenario
                         )
                 )
         );
+    }
 
+    private static InputSet BuildInputs(Spec<YellowPagesState> spec)
+    {
         var create = spec.GetOperation<CreateCountryRequest, CreateCountryResponse>(
             "CreateCountry"
         );

@@ -17,25 +17,26 @@ app.Add(
     async (
         string target = "inmemory",
         string scenario = "country-crud",
+        bool noLock = false,
         string? url = null,
         string? jwtSecret = null,
         string? stdioPath = "../../../../stdio/stdio"
     ) =>
     {
-        var targetImpl = ResolveTarget(target, url, jwtSecret, stdioPath);
+        var targetImpl = ResolveTarget(target, url, jwtSecret, stdioPath, !noLock);
         if (!ScenarioRegistry.All.TryGetValue(scenario, out var sc))
             throw new ArgumentException(
                 $"Unknown scenario '{scenario}'. Valid: {string.Join(", ", ScenarioRegistry.All.Keys)}"
             );
 
-        var client = new ApiClient(targetImpl);
         var initialState = new YellowPagesState();
         var spec = YellowPagesSpec.Create();
 
         ApiClient.BindTo(spec);
-        var inputs = sc.BuildInputs(spec);
+        var client = new ApiClient(targetImpl);
+        var suite = sc.BuildTests(spec, initialState);
 
-        var ok = await ExecuteTests(spec, initialState, client, inputs, sc.Options);
+        var ok = await ExecuteTests(spec, initialState, client, suite);
         Console.WriteLine(ok ? "✓ All tests passed" : "✗ Some tests failed");
     }
 );
@@ -49,6 +50,7 @@ app.Add(
     async (
         string targets = "inmemory,http",
         string scenario = "country-crud",
+        bool noLock = false,
         string? url = null,
         string? jwtSecret = null,
         string? stdioPath = "../../../../stdio/stdio"
@@ -65,17 +67,17 @@ app.Add(
         var allOk = true;
         foreach (var t in targetNames)
         {
-            var targetImpl = ResolveTarget(t, url, jwtSecret, stdioPath);
+            var targetImpl = ResolveTarget(t, url, jwtSecret, stdioPath, !noLock);
             var client = new ApiClient(targetImpl);
 
             // Each target gets a fresh spec: ExecuteWith is stateful,
             // and InputSet captures operation refs from the spec it was built from.
             var targetSpec = YellowPagesSpec.Create();
             ApiClient.BindTo(targetSpec);
-            var inputs = sc.BuildInputs(targetSpec);
+            var suite = sc.BuildTests(targetSpec, initialState);
 
             Console.WriteLine($"=== {t} Target ===");
-            var ok = await ExecuteTests(targetSpec, initialState, client, inputs, sc.Options);
+            var ok = await ExecuteTests(targetSpec, initialState, client, suite);
             Console.WriteLine();
             allOk &= ok;
         }
@@ -94,11 +96,8 @@ app.Add(
     () =>
     {
         Console.WriteLine("Scenarios:");
-        foreach (var (name, sc) in ScenarioRegistry.All)
-        {
-            var depth = sc.Options.MaxDepth.ToString() ?? "default";
-            Console.WriteLine($"  {name}  (MaxDepth={depth})");
-        }
+        foreach (var (name, _) in ScenarioRegistry.All)
+            Console.WriteLine($"  {name}");
     }
 );
 
@@ -120,10 +119,16 @@ app.Run(args);
 // Target resolution
 // ===========================================================================
 
-static ITarget ResolveTarget(string target, string? url, string? jwtSecret, string? stdioPath) =>
+static ITarget ResolveTarget(
+    string target,
+    string? url,
+    string? jwtSecret,
+    string? stdioPath,
+    bool threadSafe = true
+) =>
     target switch
     {
-        "inmemory" => new InMemoryTarget(new InMemoryServer(new YellowPagesState())),
+        "inmemory" => new InMemoryTarget(new InMemoryServer(new YellowPagesState(), threadSafe)),
         "http" => url is not null && jwtSecret is not null
             ? new HttpTarget(url, jwtSecret)
             : throw new ArgumentException("--url and --jwt-secret required for HTTP target"),
@@ -143,20 +148,23 @@ static async Task<bool> ExecuteTests(
     Spec<YellowPagesState> spec,
     YellowPagesState initialState,
     ApiClient client,
-    InputSet inputs,
-    TestGenerationOptions genOptions
+    TestSuite suite
 )
 {
     var context = spec.CreateTestingContext();
     context.Register(client);
 
-    var testCases = spec.GenerateTests(initialState, inputs, genOptions);
-    var results = await spec.RunTests(
-        context,
-        initialState,
-        testCases,
-        new TestExecutionOptions { BeforeEachAsync = async _ => await client.ResetAsync() }
-    );
+    var execOptions = new TestExecutionOptions
+    {
+        BeforeEachAsync = async _ => await client.ResetAsync(),
+    };
+
+    var results = suite switch
+    {
+        TestSuite.Sequential s => await spec.RunTests(context, initialState, s.Cases, execOptions),
+        TestSuite.Concurrent c => await spec.RunTests(context, initialState, c.Cases, execOptions),
+        _ => throw new ArgumentOutOfRangeException(nameof(suite)),
+    };
 
     var allPassed = true;
     foreach (var r in results)
@@ -196,5 +204,6 @@ static class ScenarioRegistry
     {
         ["country-crud"] = new CountryCrudScenario(),
         ["country-create-only"] = new CountryCreateOnlyScenario(),
+        ["country-create-race"] = new CountryCreateRaceScenario(),
     };
 }

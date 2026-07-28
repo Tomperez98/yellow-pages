@@ -5,6 +5,14 @@ namespace Spec.Scenarios;
 
 public interface IScenario
 {
-    InputSet BuildInputs(Spec<YellowPagesState> spec);
-    TestGenerationOptions Options { get; }
+    TestSuite BuildTests(Spec<YellowPagesState> spec, YellowPagesState initialState);
+}
+
+public abstract record TestSuite
+{
+    private TestSuite() { }
+
+    public sealed record Sequential(IList<SequentialTestCase> Cases) : TestSuite;
+
+    public sealed record Concurrent(IList<ConcurrentTestCase> Cases) : TestSuite;
 }

@@ -12,19 +12,19 @@ public class InMemoryTarget(InMemoryServer server) : ITarget
         return Task.CompletedTask;
     }
 
-    public Task<TargetResponse> AsyncSend<TRequest>(TRequest request)
+    public async Task<TargetResponse> AsyncSend<TRequest>(TRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         var response = request switch
         {
-            CreateCountryRequest r => ToResult(server.CreateCountry(r)),
-            UpdateCountryRequest r => ToResult(server.UpdateCountry(r)),
-            DeleteCountryRequest r => ToResult(server.DeleteCountry(r)),
+            CreateCountryRequest r => ToResult(await server.CreateCountryAsync(r)),
+            UpdateCountryRequest r => ToResult(await server.UpdateCountryAsync(r)),
+            DeleteCountryRequest r => ToResult(await server.DeleteCountryAsync(r)),
             _ => throw new ArgumentException($"Unknown request type: {typeof(TRequest).Name}"),
         };
 
-        return Task.FromResult(response);
+        return response;
     }
 
     private static TargetResponse ToResult(object resp) =>
@@ -54,17 +54,19 @@ public class InMemoryTarget(InMemoryServer server) : ITarget
     private static TargetResponse.Err Err(HttpStatusCode status) => new(status, status.ToString());
 }
 
-public class InMemoryServer(YellowPagesState initialState)
+public class InMemoryServer(YellowPagesState initialState, bool threadSafe = true)
 {
     private readonly YellowPagesState _initial = Clone(initialState);
     private YellowPagesState _state = Clone(initialState);
+    private readonly bool _threadSafe = threadSafe;
+    private readonly SemaphoreSlim _lock = new(1, 1);
 
     public void Reset()
     {
         _state = Clone(_initial);
     }
 
-    public CreateCountryResponse CreateCountry(CreateCountryRequest req)
+    public async Task<CreateCountryResponse> CreateCountryAsync(CreateCountryRequest req)
     {
         if (req.Claims.Role != "admin")
             return new CreateCountryResponse.Forbidden();
@@ -72,15 +74,28 @@ public class InMemoryServer(YellowPagesState initialState)
         if (string.IsNullOrWhiteSpace(req.Code))
             return new CreateCountryResponse.BadRequest();
 
-        if (_state.Countries.Any(c => c.Code == req.Code))
-            return new CreateCountryResponse.Conflict();
+        if (_threadSafe)
+            await _lock.WaitAsync();
+        try
+        {
+            if (_state.Countries.Any(c => c.Code == req.Code))
+                return new CreateCountryResponse.Conflict();
 
-        var id = Guid.CreateVersion7();
-        _state.Countries.Add(new Country { Id = id, Code = req.Code });
-        return new CreateCountryResponse.Created(id);
+            // Simulates the async gap between check and write in a real DB.
+            await Task.Yield();
+
+            var id = Guid.CreateVersion7();
+            _state.Countries.Add(new Country { Id = id, Code = req.Code });
+            return new CreateCountryResponse.Created(id);
+        }
+        finally
+        {
+            if (_threadSafe)
+                _lock.Release();
+        }
     }
 
-    public UpdateCountryResponse UpdateCountry(UpdateCountryRequest req)
+    public async Task<UpdateCountryResponse> UpdateCountryAsync(UpdateCountryRequest req)
     {
         if (req.Claims.Role != "admin")
             return new UpdateCountryResponse.Forbidden();
@@ -88,28 +103,48 @@ public class InMemoryServer(YellowPagesState initialState)
         if (string.IsNullOrWhiteSpace(req.Code))
             return new UpdateCountryResponse.BadRequest();
 
-        var country = _state.Countries.FirstOrDefault(c => c.Id == req.CountryId);
-        if (country is null)
-            return new UpdateCountryResponse.NotFound();
+        if (_threadSafe)
+            await _lock.WaitAsync();
+        try
+        {
+            var country = _state.Countries.FirstOrDefault(c => c.Id == req.CountryId);
+            if (country is null)
+                return new UpdateCountryResponse.NotFound();
 
-        if (_state.Countries.Any(c => c.Id != req.CountryId && c.Code == req.Code))
-            return new UpdateCountryResponse.Conflict();
+            if (_state.Countries.Any(c => c.Id != req.CountryId && c.Code == req.Code))
+                return new UpdateCountryResponse.Conflict();
 
-        country.Code = req.Code;
-        return new UpdateCountryResponse.Ok();
+            country.Code = req.Code;
+            return new UpdateCountryResponse.Ok();
+        }
+        finally
+        {
+            if (_threadSafe)
+                _lock.Release();
+        }
     }
 
-    public DeleteCountryResponse DeleteCountry(DeleteCountryRequest req)
+    public async Task<DeleteCountryResponse> DeleteCountryAsync(DeleteCountryRequest req)
     {
         if (req.Claims.Role != "admin")
             return new DeleteCountryResponse.Forbidden();
 
-        var country = _state.Countries.FirstOrDefault(c => c.Id == req.CountryId);
-        if (country is null)
-            return new DeleteCountryResponse.NotFound();
+        if (_threadSafe)
+            await _lock.WaitAsync();
+        try
+        {
+            var country = _state.Countries.FirstOrDefault(c => c.Id == req.CountryId);
+            if (country is null)
+                return new DeleteCountryResponse.NotFound();
 
-        _state.Countries.RemoveAll(c => c.Id == req.CountryId);
-        return new DeleteCountryResponse.Ok();
+            _state.Countries.RemoveAll(c => c.Id == req.CountryId);
+            return new DeleteCountryResponse.Ok();
+        }
+        finally
+        {
+            if (_threadSafe)
+                _lock.Release();
+        }
     }
 
     private static YellowPagesState Clone(YellowPagesState s) =>
