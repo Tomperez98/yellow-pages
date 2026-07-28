@@ -191,11 +191,11 @@ public static class YellowPagesSpec
                 )
                 .When((_, resp) => resp is CreateCountryResponse.Ok)
                 .As(
-                    (_, resp, template) =>
+                    (req, resp) =>
                         new UpdateCountryRequest(
-                            template.Claims,
+                            req.Claims,
                             ((CreateCountryResponse.Ok)resp).CountryId,
-                            template.Code
+                            req.Code
                         )
                 )
         );
@@ -208,9 +208,9 @@ public static class YellowPagesSpec
                 )
                 .When((_, resp) => resp is CreateCountryResponse.Ok)
                 .As(
-                    (_, resp, template) =>
+                    (req, resp) =>
                         new DeleteCountryRequest(
-                            template.Claims,
+                            req.Claims,
                             ((CreateCountryResponse.Ok)resp).CountryId
                         )
                 )

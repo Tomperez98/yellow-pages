@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Spec.Model;
 using Spec.Targets;
 
@@ -6,35 +5,48 @@ namespace spec;
 
 public class ApiClient(ITarget target)
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
+    public Task ResetAsync() => target.AsyncReset();
 
-    public async Task<CreateCountryResponse> CreateCountryAsync(
-        string name,
-        CreateCountryRequest request
-    )
+    public async Task<CreateCountryResponse> CreateCountryAsync(CreateCountryRequest request)
     {
-        var responseJson = await target.AsyncSend(name, request);
-        return JsonSerializer.Deserialize<CreateCountryResponse>(responseJson, JsonOptions)!;
+        var r = await target.AsyncSend(request);
+        return r switch
+        {
+            TargetResponse.Ok { Status: 200 } ok => new CreateCountryResponse.Ok(
+                ok.Deserialize<CreateOk>().CountryId
+            ),
+            TargetResponse.Err { Status: 409 } => new CreateCountryResponse.Conflict(),
+            TargetResponse.Err { Status: 400 } => new CreateCountryResponse.InvalidData(),
+            TargetResponse.Err { Status: 403 } => new CreateCountryResponse.NotAuthorized(),
+            _ => throw new InvalidOperationException($"Unexpected response: {r}"),
+        };
     }
 
-    public async Task<UpdateCountryResponse> UpdateCountryAsync(
-        string name,
-        UpdateCountryRequest request
-    )
+    public async Task<UpdateCountryResponse> UpdateCountryAsync(UpdateCountryRequest request)
     {
-        var responseJson = await target.AsyncSend(name, request);
-        return JsonSerializer.Deserialize<UpdateCountryResponse>(responseJson, JsonOptions)!;
+        var r = await target.AsyncSend(request);
+        return r switch
+        {
+            TargetResponse.Ok { Status: 200 } => new UpdateCountryResponse.Ok(),
+            TargetResponse.Err { Status: 404 } => new UpdateCountryResponse.NotFound(),
+            TargetResponse.Err { Status: 409 } => new UpdateCountryResponse.Conflict(),
+            TargetResponse.Err { Status: 400 } => new UpdateCountryResponse.ValidationFailed(),
+            TargetResponse.Err { Status: 403 } => new UpdateCountryResponse.NotAuthorized(),
+            _ => throw new InvalidOperationException($"Unexpected response: {r}"),
+        };
     }
 
-    public async Task<DeleteCountryResponse> DeleteCountryAsync(
-        string name,
-        DeleteCountryRequest request
-    )
+    public async Task<DeleteCountryResponse> DeleteCountryAsync(DeleteCountryRequest request)
     {
-        var responseJson = await target.AsyncSend(name, request);
-        return JsonSerializer.Deserialize<DeleteCountryResponse>(responseJson, JsonOptions)!;
+        var r = await target.AsyncSend(request);
+        return r switch
+        {
+            TargetResponse.Ok { Status: 200 } => new DeleteCountryResponse.Ok(),
+            TargetResponse.Err { Status: 404 } => new DeleteCountryResponse.NotFound(),
+            TargetResponse.Err { Status: 403 } => new DeleteCountryResponse.NotAuthorized(),
+            _ => throw new InvalidOperationException($"Unexpected response: {r}"),
+        };
     }
+
+    private record CreateOk(Guid CountryId);
 }

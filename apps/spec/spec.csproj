@@ -12,5 +12,6 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.Accordant" Version="0.1.6" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.21.0" />
   </ItemGroup>
 </Project>

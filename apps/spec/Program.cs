@@ -8,7 +8,7 @@ var app = ConsoleApp.Create();
 
 app.Add(
     "run",
-    async (string url = "https://localhost:5001") =>
+    async (string url, string jwtSecret) =>
     {
         var initialState = new YellowPagesState();
 
@@ -18,36 +18,68 @@ app.Add(
         spec.ExecuteWith<ApiClient>()
             .BindAsync<CreateCountryRequest, CreateCountryResponse>(
                 "CreateCountry",
-                (client, req) => client.CreateCountryAsync("CreateCountry", req)
+                (client, req) => client.CreateCountryAsync(req)
             )
             .BindAsync<UpdateCountryRequest, UpdateCountryResponse>(
                 "UpdateCountry",
-                (client, req) => client.UpdateCountryAsync("UpdateCountry", req)
+                (client, req) => client.UpdateCountryAsync(req)
             )
             .BindAsync<DeleteCountryRequest, DeleteCountryResponse>(
                 "DeleteCountry",
-                (client, req) => client.DeleteCountryAsync("DeleteCountry", req)
+                (client, req) => client.DeleteCountryAsync(req)
             );
 
         // Register the ApiClient backed by an HTTP target
         var context = spec.CreateTestingContext();
-        context.Register(new ApiClient(new HttpTarget(url)));
+        var client = new ApiClient(new HttpTarget(url, jwtSecret));
+        context.Register(client);
 
         // Provide seed inputs for test generation
         var admin = new Claims("admin", "admin", "", "", []);
+        var createCountry = spec.GetOperation<CreateCountryRequest, CreateCountryResponse>(
+            "CreateCountry"
+        );
         var inputs = new InputSet
         {
-            spec["CreateCountry"].With(new CreateCountryRequest(admin, "US")),
-            spec["CreateCountry"].With(new CreateCountryRequest(admin, "CA")),
+            createCountry.With(new CreateCountryRequest(admin, "US"), "Create US"),
+            createCountry.With(new CreateCountryRequest(admin, "CA"), "Create CA"),
         };
 
         // Generate and run tests
         var testCases = spec.GenerateTests(initialState, inputs);
-        var results = await spec.RunTests(context, initialState, testCases);
+        var results = await spec.RunTests(
+            context,
+            initialState,
+            testCases,
+            new TestExecutionOptions
+            {
+                BeforeEachAsync = async (info) =>
+                {
+                    await client.ResetAsync();
+                },
+            }
+        );
 
         foreach (var r in results)
         {
-            Console.WriteLine(r.Success ? $"  PASS" : $"  FAIL — {r.LastFailureMessage}");
+            if (r.Success)
+                Console.WriteLine($"  PASS");
+            else
+            {
+                Console.WriteLine($"  FAIL");
+                // LastFailureMessage may contain exception objects that fail to serialize;
+                // print what we can safely.
+                try
+                {
+                    Console.WriteLine($"    Message: {r.LastFailureMessage}");
+                }
+                catch
+                {
+                    Console.WriteLine($"    (failure message not serializable)");
+                }
+                if (!string.IsNullOrEmpty(r.LogFilePath))
+                    Console.WriteLine($"    Log: {r.LogFilePath}");
+            }
         }
     }
 );
