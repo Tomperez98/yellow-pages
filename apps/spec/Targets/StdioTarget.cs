@@ -120,5 +120,6 @@ public class StdioTarget : ITarget, IDisposable
         _stdin.Dispose();
         _stdout.Dispose();
         _process.Dispose();
+        GC.SuppressFinalize(this);
     }
 }
