@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Accordant;
 using Spec.Model;
 using Spec.Targets;
 
@@ -6,6 +7,23 @@ namespace spec;
 
 public class ApiClient(ITarget target)
 {
+    public static void BindTo(Spec<YellowPagesState> spec)
+    {
+        spec.ExecuteWith<ApiClient>()
+            .BindAsync<CreateCountryRequest, CreateCountryResponse>(
+                "CreateCountry",
+                (c, req) => c.CreateCountryAsync(req)
+            )
+            .BindAsync<UpdateCountryRequest, UpdateCountryResponse>(
+                "UpdateCountry",
+                (c, req) => c.UpdateCountryAsync(req)
+            )
+            .BindAsync<DeleteCountryRequest, DeleteCountryResponse>(
+                "DeleteCountry",
+                (c, req) => c.DeleteCountryAsync(req)
+            );
+    }
+
     public Task ResetAsync() => target.AsyncReset();
 
     public async Task<CreateCountryResponse> CreateCountryAsync(CreateCountryRequest request)

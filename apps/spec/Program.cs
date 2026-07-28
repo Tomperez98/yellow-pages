@@ -2,107 +2,163 @@ using ConsoleAppFramework;
 using Microsoft.Accordant;
 using spec;
 using Spec.Model;
+using Spec.Scenarios;
 using Spec.Targets;
 
 var app = ConsoleApp.Create();
 
+// ---------------------------------------------------------------------------
+// test: run a named scenario against a single target
+//   dotnet run -- test --target inmemory --scenario country-crud
+//   dotnet run -- test --target http --url https://... --jwt-secret ... --scenario country-crud
+// ---------------------------------------------------------------------------
 app.Add(
-    "run",
-    async (string url, string jwtSecret) =>
+    "test",
+    async (
+        string target = "inmemory",
+        string scenario = "country-crud",
+        string? url = null,
+        string? jwtSecret = null,
+        string? stdioPath = "../../../../stdio/stdio"
+    ) =>
     {
+        var targetImpl = ResolveTarget(target, url, jwtSecret, stdioPath);
+        if (!ScenarioRegistry.All.TryGetValue(scenario, out var sc))
+            throw new ArgumentException(
+                $"Unknown scenario '{scenario}'. Valid: {string.Join(", ", ScenarioRegistry.All.Keys)}"
+            );
+
+        var client = new ApiClient(targetImpl);
         var initialState = new YellowPagesState();
         var spec = YellowPagesSpec.Create();
-        var client = new ApiClient(new HttpTarget(url, jwtSecret));
 
-        await RunTests(spec, initialState, client);
+        ApiClient.BindTo(spec);
+        var inputs = sc.BuildInputs(spec);
+        var genOptions = sc.Options ?? new TestGenerationOptions();
+
+        var ok = await ExecuteTests(spec, initialState, client, inputs, genOptions);
+        Console.WriteLine(ok ? "✓ All tests passed" : "✗ Some tests failed");
     }
 );
 
+// ---------------------------------------------------------------------------
+// conformance: run a scenario against multiple targets
+//   dotnet run -- conformance --targets inmemory,http --url ... --jwt-secret ...
+// ---------------------------------------------------------------------------
 app.Add(
     "conformance",
-    async (string target = "inmemory,http", string? url = null, string? jwtSecret = null) =>
+    async (
+        string targets = "inmemory,http",
+        string scenario = "country-crud",
+        string? url = null,
+        string? jwtSecret = null,
+        string? stdioPath = "../../../../stdio/stdio"
+    ) =>
     {
-        var targets = target.Split(',', StringSplitOptions.TrimEntries);
+        var targetNames = targets.Split(',', StringSplitOptions.TrimEntries);
         var initialState = new YellowPagesState();
-        var spec = YellowPagesSpec.Create();
+
+        if (!ScenarioRegistry.All.TryGetValue(scenario, out var sc))
+            throw new ArgumentException(
+                $"Unknown scenario '{scenario}'. Valid: {string.Join(", ", ScenarioRegistry.All.Keys)}"
+            );
+
+        var genOptions = sc.Options ?? new TestGenerationOptions();
 
         var allOk = true;
-
-        foreach (var t in targets)
+        foreach (var t in targetNames)
         {
-            ITarget targetImpl = t switch
-            {
-                "inmemory" => new InMemoryTarget(new InMemoryServer(initialState)),
-                "http" => url is not null && jwtSecret is not null
-                    ? new HttpTarget(url, jwtSecret)
-                    : throw new ArgumentException(
-                        "--url and --jwt-secret required for HTTP target"
-                    ),
-                "stdio" => new StdioTarget("../../../../stdio/stdio"),
-                _ => throw new ArgumentException(
-                    $"Unknown target '{t}'. Valid: inmemory, http, stdio"
-                ),
-            };
-
+            var targetImpl = ResolveTarget(t, url, jwtSecret, stdioPath);
             var client = new ApiClient(targetImpl);
 
+            // Each target gets a fresh spec: ExecuteWith is stateful,
+            // and InputSet captures operation refs from the spec it was built from.
+            var targetSpec = YellowPagesSpec.Create();
+            ApiClient.BindTo(targetSpec);
+            var inputs = sc.BuildInputs(targetSpec);
+
             Console.WriteLine($"=== {t} Target ===");
-            var ok = await RunTests(spec, initialState, client);
+            var ok = await ExecuteTests(targetSpec, initialState, client, inputs, genOptions);
             Console.WriteLine();
             allOk &= ok;
-
-            if (targetImpl is IDisposable d)
-                d.Dispose();
         }
 
-        if (targets.Length > 1)
-        {
+        if (targetNames.Length > 1)
             Console.WriteLine(allOk ? "✓ All targets conformance OK" : "✗ Conformance mismatch");
+    }
+);
+
+// ---------------------------------------------------------------------------
+// list-scenarios: print registered scenarios
+//   dotnet run -- list-scenarios
+// ---------------------------------------------------------------------------
+app.Add(
+    "list-scenarios",
+    () =>
+    {
+        Console.WriteLine("Scenarios:");
+        foreach (var (name, sc) in ScenarioRegistry.All)
+        {
+            var depth = sc.Options?.MaxDepth.ToString() ?? "default";
+            Console.WriteLine($"  {name}  (MaxDepth={depth})");
         }
+    }
+);
+
+// ---------------------------------------------------------------------------
+// list-targets: print available targets
+//   dotnet run -- list-targets
+// ---------------------------------------------------------------------------
+app.Add(
+    "list-targets",
+    () =>
+    {
+        Console.WriteLine("Targets: inmemory, http, stdio");
     }
 );
 
 app.Run(args);
 
-static async Task<bool> RunTests(
+// ===========================================================================
+// Target resolution
+// ===========================================================================
+
+static ITarget ResolveTarget(string target, string? url, string? jwtSecret, string? stdioPath) =>
+    target switch
+    {
+        "inmemory" => new InMemoryTarget(new InMemoryServer(new YellowPagesState())),
+        "http" => url is not null && jwtSecret is not null
+            ? new HttpTarget(url, jwtSecret)
+            : throw new ArgumentException("--url and --jwt-secret required for HTTP target"),
+        "stdio" => stdioPath is not null
+            ? new StdioTarget(stdioPath)
+            : throw new ArgumentException("--stdio-path required for stdio target"),
+        _ => throw new ArgumentException(
+            $"Unknown target '{target}'. Valid: inmemory, http, stdio"
+        ),
+    };
+
+// ===========================================================================
+// Shared execution
+// ===========================================================================
+
+static async Task<bool> ExecuteTests(
     Spec<YellowPagesState> spec,
     YellowPagesState initialState,
-    ApiClient client
+    ApiClient client,
+    InputSet inputs,
+    TestGenerationOptions genOptions
 )
 {
-    spec.ExecuteWith<ApiClient>()
-        .BindAsync<CreateCountryRequest, CreateCountryResponse>(
-            "CreateCountry",
-            (c, req) => c.CreateCountryAsync(req)
-        )
-        .BindAsync<UpdateCountryRequest, UpdateCountryResponse>(
-            "UpdateCountry",
-            (c, req) => c.UpdateCountryAsync(req)
-        )
-        .BindAsync<DeleteCountryRequest, DeleteCountryResponse>(
-            "DeleteCountry",
-            (c, req) => c.DeleteCountryAsync(req)
-        );
-
     var context = spec.CreateTestingContext();
     context.Register(client);
 
-    var admin = new Claims("admin", "admin", "", "", []);
-    var createCountry = spec.GetOperation<CreateCountryRequest, CreateCountryResponse>(
-        "CreateCountry"
-    );
-    var inputs = new InputSet
-    {
-        createCountry.With(new CreateCountryRequest(admin, "US"), "Create US"),
-        createCountry.With(new CreateCountryRequest(admin, "CA"), "Create CA"),
-    };
-
-    var testCases = spec.GenerateTests(initialState, inputs);
+    var testCases = spec.GenerateTests(initialState, inputs, genOptions);
     var results = await spec.RunTests(
         context,
         initialState,
         testCases,
-        new TestExecutionOptions { BeforeEachAsync = async (_) => await client.ResetAsync() }
+        new TestExecutionOptions { BeforeEachAsync = async _ => await client.ResetAsync() }
     );
 
     var allPassed = true;
@@ -130,4 +186,18 @@ static async Task<bool> RunTests(
     }
 
     return allPassed;
+}
+
+// ===========================================================================
+// Scenario registry — maps name → IScenario.
+// To add a scenario: implement IScenario, add one line here.
+// ===========================================================================
+
+static class ScenarioRegistry
+{
+    public static readonly Dictionary<string, IScenario> All = new()
+    {
+        ["country-crud"] = new CountryCrudScenario(),
+        ["country-create-only"] = new CountryCreateOnlyScenario(),
+    };
 }

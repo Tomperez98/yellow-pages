@@ -182,41 +182,6 @@ public static class YellowPagesSpec
             }
         );
 
-        // --- Derivations ---
-
-        spec.ConfigureDerivations(
-            "UpdateCountry",
-            Derive
-                .From<CreateCountryRequest, CreateCountryResponse, UpdateCountryRequest>(
-                    "CreateCountry"
-                )
-                .When((_, resp) => resp is CreateCountryResponse.Created)
-                .As(
-                    (req, resp) =>
-                        new UpdateCountryRequest(
-                            req.Claims,
-                            ((CreateCountryResponse.Created)resp).CountryId,
-                            req.Code
-                        )
-                )
-        );
-
-        spec.ConfigureDerivations(
-            "DeleteCountry",
-            Derive
-                .From<CreateCountryRequest, CreateCountryResponse, DeleteCountryRequest>(
-                    "CreateCountry"
-                )
-                .When((_, resp) => resp is CreateCountryResponse.Created)
-                .As(
-                    (req, resp) =>
-                        new DeleteCountryRequest(
-                            req.Claims,
-                            ((CreateCountryResponse.Created)resp).CountryId
-                        )
-                )
-        );
-
         return spec;
     }
 }

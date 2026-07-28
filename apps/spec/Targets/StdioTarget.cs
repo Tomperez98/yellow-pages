@@ -6,7 +6,7 @@ using Spec.Model;
 
 namespace Spec.Targets;
 
-public class StdioTarget : ITarget, IDisposable
+public class StdioTarget : ITarget
 {
     private readonly Process _process;
     private readonly StreamWriter _stdin;
@@ -109,17 +109,4 @@ public class StdioTarget : ITarget, IDisposable
             org_role = c.OrgRole,
             orgs = c.Orgs.Select(o => new { OrgId = o.OrgId, Role = o.Role }),
         };
-
-    public void Dispose()
-    {
-        if (!_process.HasExited)
-        {
-            _process.Kill();
-            _process.WaitForExit();
-        }
-        _stdin.Dispose();
-        _stdout.Dispose();
-        _process.Dispose();
-        GC.SuppressFinalize(this);
-    }
 }
