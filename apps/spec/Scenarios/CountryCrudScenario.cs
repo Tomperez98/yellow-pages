@@ -7,7 +7,7 @@ public class CountryCrudScenario : IScenario
 {
     private static readonly Claims Admin = new("admin", "admin", "", "", []);
 
-    public TestGenerationOptions? Options => new() { MaxDepth = 5 };
+    public TestGenerationOptions Options => new() { MaxDepth = 5 };
 
     public InputSet BuildInputs(Spec<YellowPagesState> spec)
     {

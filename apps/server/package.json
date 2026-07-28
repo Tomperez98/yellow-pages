@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "bun run src/index.ts",
     "build": "bun build src/index.ts --outdir=dist --target=bun",
-    "lint": "biome check src/"
+    "lint": "biome check src/ --write"
   },
   "dependencies": {
     "jsonwebtoken": "^9.0.3"

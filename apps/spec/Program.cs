@@ -34,9 +34,8 @@ app.Add(
 
         ApiClient.BindTo(spec);
         var inputs = sc.BuildInputs(spec);
-        var genOptions = sc.Options ?? new TestGenerationOptions();
 
-        var ok = await ExecuteTests(spec, initialState, client, inputs, genOptions);
+        var ok = await ExecuteTests(spec, initialState, client, inputs, sc.Options);
         Console.WriteLine(ok ? "✓ All tests passed" : "✗ Some tests failed");
     }
 );
@@ -63,8 +62,6 @@ app.Add(
                 $"Unknown scenario '{scenario}'. Valid: {string.Join(", ", ScenarioRegistry.All.Keys)}"
             );
 
-        var genOptions = sc.Options ?? new TestGenerationOptions();
-
         var allOk = true;
         foreach (var t in targetNames)
         {
@@ -78,7 +75,7 @@ app.Add(
             var inputs = sc.BuildInputs(targetSpec);
 
             Console.WriteLine($"=== {t} Target ===");
-            var ok = await ExecuteTests(targetSpec, initialState, client, inputs, genOptions);
+            var ok = await ExecuteTests(targetSpec, initialState, client, inputs, sc.Options);
             Console.WriteLine();
             allOk &= ok;
         }
@@ -99,7 +96,7 @@ app.Add(
         Console.WriteLine("Scenarios:");
         foreach (var (name, sc) in ScenarioRegistry.All)
         {
-            var depth = sc.Options?.MaxDepth.ToString() ?? "default";
+            var depth = sc.Options.MaxDepth.ToString() ?? "default";
             Console.WriteLine($"  {name}  (MaxDepth={depth})");
         }
     }

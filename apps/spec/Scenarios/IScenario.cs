@@ -6,5 +6,5 @@ namespace Spec.Scenarios;
 public interface IScenario
 {
     InputSet BuildInputs(Spec<YellowPagesState> spec);
-    TestGenerationOptions? Options { get; }
+    TestGenerationOptions Options { get; }
 }
