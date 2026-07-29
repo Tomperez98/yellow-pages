@@ -1,5 +1,5 @@
 {
-  "name": "yellow-pages",
+  "name": "timer-spec",
   "private": true,
   "scripts": {
     "build": "turbo run build",

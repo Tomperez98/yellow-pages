@@ -7,73 +7,53 @@ namespace spec;
 
 public class ApiClient(ITarget target)
 {
-    public static void BindTo(Spec<YellowPagesState> spec)
+    public static void BindTo(Spec<TimerState> spec)
     {
         spec.ExecuteWith<ApiClient>()
-            .BindAsync<CreateCountryRequest, CreateCountryResponse>(
-                "CreateCountry",
-                (c, req) => c.CreateCountryAsync(req)
+            .BindAsync<CreateTimerRequest, CreateTimerResponse>(
+                "CreateTimer",
+                (c, req) => c.CreateTimerAsync(req)
             )
-            .BindAsync<UpdateCountryRequest, UpdateCountryResponse>(
-                "UpdateCountry",
-                (c, req) => c.UpdateCountryAsync(req)
-            )
-            .BindAsync<DeleteCountryRequest, DeleteCountryResponse>(
-                "DeleteCountry",
-                (c, req) => c.DeleteCountryAsync(req)
+            .BindAsync<GetTimerRequest, GetTimerResponse>(
+                "GetTimer",
+                (c, req) => c.GetTimerAsync(req)
             );
     }
 
     public Task ResetAsync() => target.AsyncReset();
 
-    public async Task<CreateCountryResponse> CreateCountryAsync(CreateCountryRequest request)
+    public async Task<CreateTimerResponse> CreateTimerAsync(CreateTimerRequest request)
     {
         var r = await target.AsyncSend(request);
         return r switch
         {
             TargetResponse.Ok { Status: HttpStatusCode.Created } ok =>
-                new CreateCountryResponse.Created(ok.Deserialize<CreateOk>().CountryId),
+                new CreateTimerResponse.Created(ok.Deserialize<CreateOk>().TimerId),
             TargetResponse.Err { Status: HttpStatusCode.Conflict } =>
-                new CreateCountryResponse.Conflict(),
+                new CreateTimerResponse.Conflict(),
             TargetResponse.Err { Status: HttpStatusCode.BadRequest } =>
-                new CreateCountryResponse.BadRequest(),
+                new CreateTimerResponse.BadRequest(),
             TargetResponse.Err { Status: HttpStatusCode.Forbidden } =>
-                new CreateCountryResponse.Forbidden(),
+                new CreateTimerResponse.Forbidden(),
             _ => throw new InvalidOperationException($"Unexpected response: {r}"),
         };
     }
 
-    public async Task<UpdateCountryResponse> UpdateCountryAsync(UpdateCountryRequest request)
+    public async Task<GetTimerResponse> GetTimerAsync(GetTimerRequest request)
     {
         var r = await target.AsyncSend(request);
         return r switch
         {
-            TargetResponse.Ok { Status: HttpStatusCode.OK } => new UpdateCountryResponse.Ok(),
+            TargetResponse.Ok ok => new GetTimerResponse.Ok(ok.Deserialize<GetOk>().Status),
             TargetResponse.Err { Status: HttpStatusCode.NotFound } =>
-                new UpdateCountryResponse.NotFound(),
-            TargetResponse.Err { Status: HttpStatusCode.Conflict } =>
-                new UpdateCountryResponse.Conflict(),
-            TargetResponse.Err { Status: HttpStatusCode.BadRequest } =>
-                new UpdateCountryResponse.BadRequest(),
+                new GetTimerResponse.NotFound(),
             TargetResponse.Err { Status: HttpStatusCode.Forbidden } =>
-                new UpdateCountryResponse.Forbidden(),
+                new GetTimerResponse.Forbidden(),
             _ => throw new InvalidOperationException($"Unexpected response: {r}"),
         };
     }
 
-    public async Task<DeleteCountryResponse> DeleteCountryAsync(DeleteCountryRequest request)
-    {
-        var r = await target.AsyncSend(request);
-        return r switch
-        {
-            TargetResponse.Ok { Status: HttpStatusCode.OK } => new DeleteCountryResponse.Ok(),
-            TargetResponse.Err { Status: HttpStatusCode.NotFound } =>
-                new DeleteCountryResponse.NotFound(),
-            TargetResponse.Err { Status: HttpStatusCode.Forbidden } =>
-                new DeleteCountryResponse.Forbidden(),
-            _ => throw new InvalidOperationException($"Unexpected response: {r}"),
-        };
-    }
+    private record CreateOk(Guid TimerId);
 
-    private record CreateOk(Guid CountryId);
+    private record GetOk(TimerStatus Status);
 }

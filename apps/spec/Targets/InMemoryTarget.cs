@@ -18,9 +18,8 @@ public class InMemoryTarget(InMemoryServer server) : ITarget
 
         var response = request switch
         {
-            CreateCountryRequest r => ToResult(await server.CreateCountryAsync(r)),
-            UpdateCountryRequest r => ToResult(await server.UpdateCountryAsync(r)),
-            DeleteCountryRequest r => ToResult(await server.DeleteCountryAsync(r)),
+            CreateTimerRequest r => ToResult(await server.CreateTimerAsync(r)),
+            GetTimerRequest r => ToResult(await server.GetTimerAsync(r)),
             _ => throw new ArgumentException($"Unknown request type: {typeof(TRequest).Name}"),
         };
 
@@ -30,20 +29,14 @@ public class InMemoryTarget(InMemoryServer server) : ITarget
     private static TargetResponse ToResult(object resp) =>
         resp switch
         {
-            CreateCountryResponse.Created => Ok(HttpStatusCode.Created, resp),
-            CreateCountryResponse.Conflict => Err(HttpStatusCode.Conflict),
-            CreateCountryResponse.BadRequest => Err(HttpStatusCode.BadRequest),
-            CreateCountryResponse.Forbidden => Err(HttpStatusCode.Forbidden),
+            CreateTimerResponse.Created => Ok(HttpStatusCode.Created, resp),
+            CreateTimerResponse.Conflict => Err(HttpStatusCode.Conflict),
+            CreateTimerResponse.BadRequest => Err(HttpStatusCode.BadRequest),
+            CreateTimerResponse.Forbidden => Err(HttpStatusCode.Forbidden),
 
-            UpdateCountryResponse.Ok => Ok(HttpStatusCode.OK, resp),
-            UpdateCountryResponse.NotFound => Err(HttpStatusCode.NotFound),
-            UpdateCountryResponse.Conflict => Err(HttpStatusCode.Conflict),
-            UpdateCountryResponse.BadRequest => Err(HttpStatusCode.BadRequest),
-            UpdateCountryResponse.Forbidden => Err(HttpStatusCode.Forbidden),
-
-            DeleteCountryResponse.Ok => Ok(HttpStatusCode.OK, resp),
-            DeleteCountryResponse.NotFound => Err(HttpStatusCode.NotFound),
-            DeleteCountryResponse.Forbidden => Err(HttpStatusCode.Forbidden),
+            GetTimerResponse.Ok => Ok(HttpStatusCode.OK, resp),
+            GetTimerResponse.NotFound => Err(HttpStatusCode.NotFound),
+            GetTimerResponse.Forbidden => Err(HttpStatusCode.Forbidden),
 
             _ => throw new ArgumentException($"Unknown response type: {resp.GetType().Name}"),
         };
@@ -54,39 +47,84 @@ public class InMemoryTarget(InMemoryServer server) : ITarget
     private static TargetResponse.Err Err(HttpStatusCode status) => new(status, status.ToString());
 }
 
-public class InMemoryServer(YellowPagesState initialState, bool threadSafe = true)
+public class InMemoryServer : IDisposable
 {
-    private readonly YellowPagesState _initial = Clone(initialState);
-    private YellowPagesState _state = Clone(initialState);
-    private readonly bool _threadSafe = threadSafe;
+    private readonly TimerState _initial;
+    private TimerState _state;
+    private readonly bool _threadSafe;
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly CancellationTokenSource _deadlineCts = new();
+
+    // ponytail: single background loop, per-item timers if throughput matters
+    public InMemoryServer(
+        TimerState initialState,
+        bool threadSafe = true,
+        int deadlineCheckMs = 500
+    )
+    {
+        _initial = Clone(initialState);
+        _state = Clone(initialState);
+        _threadSafe = threadSafe;
+        _ = RunDeadlineMonitor(deadlineCheckMs, _deadlineCts.Token);
+    }
+
+    private async Task RunDeadlineMonitor(int intervalMs, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            await Task.Delay(intervalMs, ct);
+            if (_threadSafe)
+                await _lock.WaitAsync(ct);
+            try
+            {
+                foreach (
+                    var item in _state.Items.Where(t =>
+                        t.Status == TimerStatus.Active && t.Deadline < DateTime.UtcNow
+                    )
+                )
+                    item.Status = TimerStatus.Completed;
+            }
+            finally
+            {
+                if (_threadSafe)
+                    _lock.Release();
+            }
+        }
+    }
 
     public void Reset()
     {
         _state = Clone(_initial);
     }
 
-    public async Task<CreateCountryResponse> CreateCountryAsync(CreateCountryRequest req)
+    public async Task<CreateTimerResponse> CreateTimerAsync(CreateTimerRequest req)
     {
-        if (req.Claims.Role != "admin")
-            return new CreateCountryResponse.Forbidden();
+        if (req.Claims.Role != "user")
+            return new CreateTimerResponse.Forbidden();
 
-        if (string.IsNullOrWhiteSpace(req.Code))
-            return new CreateCountryResponse.BadRequest();
+        if (string.IsNullOrWhiteSpace(req.Slug))
+            return new CreateTimerResponse.BadRequest();
 
         if (_threadSafe)
             await _lock.WaitAsync();
         try
         {
-            if (_state.Countries.Any(c => c.Code == req.Code))
-                return new CreateCountryResponse.Conflict();
+            if (_state.Items.Any(t => t.Slug == req.Slug))
+                return new CreateTimerResponse.Conflict();
 
-            // Simulates the async gap between check and write in a real DB.
-            await Task.Yield();
+            await Task.Yield(); // simulate async gap
 
             var id = Guid.CreateVersion7();
-            _state.Countries.Add(new Country { Id = id, Code = req.Code });
-            return new CreateCountryResponse.Created(id);
+            _state.Items.Add(
+                new TimerItem
+                {
+                    Id = id,
+                    Slug = req.Slug,
+                    Deadline = req.Deadline,
+                    Status = TimerStatus.Active,
+                }
+            );
+            return new CreateTimerResponse.Created(id);
         }
         finally
         {
@@ -95,27 +133,20 @@ public class InMemoryServer(YellowPagesState initialState, bool threadSafe = tru
         }
     }
 
-    public async Task<UpdateCountryResponse> UpdateCountryAsync(UpdateCountryRequest req)
+    public async Task<GetTimerResponse> GetTimerAsync(GetTimerRequest req)
     {
-        if (req.Claims.Role != "admin")
-            return new UpdateCountryResponse.Forbidden();
-
-        if (string.IsNullOrWhiteSpace(req.Code))
-            return new UpdateCountryResponse.BadRequest();
+        if (req.Claims.Role != "user")
+            return new GetTimerResponse.Forbidden();
 
         if (_threadSafe)
             await _lock.WaitAsync();
         try
         {
-            var country = _state.Countries.FirstOrDefault(c => c.Id == req.CountryId);
-            if (country is null)
-                return new UpdateCountryResponse.NotFound();
+            var timer = _state.Items.FirstOrDefault(t => t.Id == req.TimerId);
+            if (timer is null)
+                return new GetTimerResponse.NotFound();
 
-            if (_state.Countries.Any(c => c.Id != req.CountryId && c.Code == req.Code))
-                return new UpdateCountryResponse.Conflict();
-
-            country.Code = req.Code;
-            return new UpdateCountryResponse.Ok();
+            return new GetTimerResponse.Ok(timer.Status);
         }
         finally
         {
@@ -124,32 +155,19 @@ public class InMemoryServer(YellowPagesState initialState, bool threadSafe = tru
         }
     }
 
-    public async Task<DeleteCountryResponse> DeleteCountryAsync(DeleteCountryRequest req)
-    {
-        if (req.Claims.Role != "admin")
-            return new DeleteCountryResponse.Forbidden();
+    public void Dispose() => _deadlineCts.Cancel();
 
-        if (_threadSafe)
-            await _lock.WaitAsync();
-        try
-        {
-            var country = _state.Countries.FirstOrDefault(c => c.Id == req.CountryId);
-            if (country is null)
-                return new DeleteCountryResponse.NotFound();
-
-            _state.Countries.RemoveAll(c => c.Id == req.CountryId);
-            return new DeleteCountryResponse.Ok();
-        }
-        finally
-        {
-            if (_threadSafe)
-                _lock.Release();
-        }
-    }
-
-    private static YellowPagesState Clone(YellowPagesState s) =>
+    private static TimerState Clone(TimerState s) =>
         new()
         {
-            Countries = s.Countries.Select(c => new Country { Id = c.Id, Code = c.Code }).ToList(),
+            Items = s
+                .Items.Select(i => new TimerItem
+                {
+                    Id = i.Id,
+                    Slug = i.Slug,
+                    Deadline = i.Deadline,
+                    Status = i.Status,
+                })
+                .ToList(),
         };
 }

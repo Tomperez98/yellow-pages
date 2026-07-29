@@ -5,7 +5,7 @@ namespace Spec.Scenarios;
 
 public interface IScenario
 {
-    TestSuite BuildTests(Spec<YellowPagesState> spec, YellowPagesState initialState);
+    TestSuite BuildTests(Spec<TimerState> spec, TimerState initialState);
 }
 
 public abstract record TestSuite

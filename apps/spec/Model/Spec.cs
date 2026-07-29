@@ -2,183 +2,131 @@ using Microsoft.Accordant;
 
 namespace Spec.Model;
 
-public static class YellowPagesSpec
+public static class TimerSpec
 {
-    public static Spec<YellowPagesState> Create()
+    public static Spec<TimerState> Create()
     {
-        var spec = new Spec<YellowPagesState>().WithJsonPrinters();
+        var spec = new Spec<TimerState>().WithJsonPrinters();
 
-        // --- CreateCountry ---
+        // --- CreateTimer ---
+        //
+        // Creates a timer in Active state, then triggers background deadline
+        // monitoring. The async step function models the autonomous transition
+        // Active → Completed when the deadline is reached — no client API call
+        // triggers this.
+        //
+        // Key invariants:
+        //   - Slug is user-defined and must be unique across all timers
+        //   - The async step function has exactly one deterministic transition
 
-        spec.Operation<CreateCountryRequest, CreateCountryResponse>(
-            "CreateCountry",
+        spec.Operation<CreateTimerRequest, CreateTimerResponse>(
+            "CreateTimer",
             (req, state) =>
             {
-                // --- stateless ---
-                if (req.Claims.Role != "admin")
-                    // Non-admin callers get NotAuthorized
+                if (req.Claims.Role != "user")
                     return Expect
-                        .That<CreateCountryResponse>(
-                            r => r is CreateCountryResponse.Forbidden,
-                            "only platform admins are authorized to do this action"
+                        .That<CreateTimerResponse>(
+                            r => r is CreateTimerResponse.Forbidden,
+                            "only authenticated users can create timers"
                         )
                         .SameState();
 
-                if (string.IsNullOrWhiteSpace(req.Code))
-                    // Empty or whitespace code returns InvalidData
+                if (string.IsNullOrWhiteSpace(req.Slug))
                     return Expect
-                        .That<CreateCountryResponse>(
-                            r => r is CreateCountryResponse.BadRequest,
-                            "code cannot be empty"
+                        .That<CreateTimerResponse>(
+                            r => r is CreateTimerResponse.BadRequest,
+                            "slug cannot be empty"
                         )
                         .SameState();
 
-                // --- state ---
-                if (state.Countries.Any(c => c.Code == req.Code))
-                    // Duplicate country code returns Conflict
+                if (state.Items.Any(t => t.Slug == req.Slug))
                     return Expect
-                        .That<CreateCountryResponse>(
-                            r => r is CreateCountryResponse.Conflict,
-                            "country already exists"
+                        .That<CreateTimerResponse>(
+                            r => r is CreateTimerResponse.Conflict,
+                            "a timer with this slug already exists"
                         )
                         .SameState();
 
-                // Valid request returns Ok with a non-empty CountryId
                 return Expect
-                    .That<CreateCountryResponse>(
+                    .That<CreateTimerResponse>(
                         r =>
-                            r is CreateCountryResponse.Created { CountryId: var id }
+                            r is CreateTimerResponse.Created { TimerId: var id }
                             && id != Guid.Empty,
-                        "successful creation returns Ok with a valid CountryId"
+                        "successful creation returns Created with a valid TimerId"
                     )
-                    .ThenState<YellowPagesState>(
+                    .ThenState<TimerState>(
                         (resp, s) =>
                         {
-                            var id = ((CreateCountryResponse.Created)resp).CountryId;
-                            Invariant.Assert(
-                                id.Version == 7,
-                                "generated country id is not UUID v7"
+                            var id = ((CreateTimerResponse.Created)resp).TimerId;
+                            s.Items.Add(
+                                new TimerItem
+                                {
+                                    Id = id,
+                                    Slug = req.Slug,
+                                    Deadline = req.Deadline,
+                                    Status = TimerStatus.Active,
+                                }
                             );
-                            s.Countries.Add(new Country { Id = id, Code = req.Code });
                             Invariant.Assert(
-                                s.Countries.Select(c => c.Code).Distinct().Count()
-                                    == s.Countries.Count,
-                                "duplicate country codes"
+                                s.Items.Select(t => t.Slug).Distinct().Count() == s.Items.Count,
+                                "duplicate slugs"
                             );
                         },
-                        mock: () => new CreateCountryResponse.Created(Guid.CreateVersion7())
+                        mock: () => new CreateTimerResponse.Created(Guid.CreateVersion7())
+                    )
+                    .Triggers(
+                        AsyncOperation.Create<TimerState>(
+                            isTerminal: s =>
+                            {
+                                var timer = s.Items.FirstOrDefault(t => t.Slug == req.Slug);
+                                Invariant.Assert(timer is not null, "timer must exist");
+                                return timer!.Status != TimerStatus.Active
+                                    || timer.Deadline >= DateTime.UtcNow;
+                            },
+                            transitions:
+                            [
+                                next =>
+                                {
+                                    var timer = next.Items.First(t => t.Slug == req.Slug);
+                                    timer.Status = TimerStatus.Completed;
+                                },
+                            ]
+                        )
                     );
             }
         );
 
-        // --- UpdateCountry ---
+        // --- GetTimer ---
+        //
+        // Read-only operation the framework polls to observe async transitions.
 
-        spec.Operation<UpdateCountryRequest, UpdateCountryResponse>(
-            "UpdateCountry",
+        spec.Operation<GetTimerRequest, GetTimerResponse>(
+            "GetTimer",
             (req, state) =>
             {
-                // --- stateless ---
-                if (req.Claims.Role != "admin")
-                    // Non-admin callers get NotAuthorized
+                if (req.Claims.Role != "user")
                     return Expect
-                        .That<UpdateCountryResponse>(
-                            r => r is UpdateCountryResponse.Forbidden,
-                            "only platform admins are authorized to do this action"
+                        .That<GetTimerResponse>(
+                            r => r is GetTimerResponse.Forbidden,
+                            "only authenticated users can read timers"
                         )
                         .SameState();
 
-                if (string.IsNullOrWhiteSpace(req.Code))
-                    // Empty or whitespace code returns ValidationFailed
+                var timer = state.Items.FirstOrDefault(t => t.Id == req.TimerId);
+                if (timer is null)
                     return Expect
-                        .That<UpdateCountryResponse>(
-                            r => r is UpdateCountryResponse.BadRequest,
-                            "code cannot be empty"
+                        .That<GetTimerResponse>(
+                            r => r is GetTimerResponse.NotFound,
+                            "timer with the given ID does not exist"
                         )
                         .SameState();
 
-                // --- state ---
-                var country = state.Countries.FirstOrDefault(c => c.Id == req.CountryId);
-                if (country is null)
-                    // Non-existent country ID returns NotFound
-                    return Expect
-                        .That<UpdateCountryResponse>(
-                            r => r is UpdateCountryResponse.NotFound,
-                            "country with the given ID does not exist"
-                        )
-                        .SameState();
-
-                if (state.Countries.Any(c => c.Id != req.CountryId && c.Code == req.Code))
-                    // Changing to a code already used by another country returns Conflict
-                    return Expect
-                        .That<UpdateCountryResponse>(
-                            r => r is UpdateCountryResponse.Conflict,
-                            "another country already has this code"
-                        )
-                        .SameState();
-
-                // Valid update returns Ok
                 return Expect
-                    .That<UpdateCountryResponse>(
-                        r => r is UpdateCountryResponse.Ok,
-                        "successful update returns Ok"
+                    .That<GetTimerResponse>(
+                        r => r is GetTimerResponse.Ok { Status: var s } && s == timer.Status,
+                        $"returns current status {timer.Status}"
                     )
-                    .ThenState<YellowPagesState>(
-                        (_, s) =>
-                        {
-                            var c = s.Countries.First(c => c.Id == req.CountryId);
-                            c.Code = req.Code;
-                            Invariant.Assert(
-                                s.Countries.Select(c => c.Code).Distinct().Count()
-                                    == s.Countries.Count,
-                                "duplicate country codes"
-                            );
-                        },
-                        mock: () => new UpdateCountryResponse.Ok()
-                    );
-            }
-        );
-
-        // --- DeleteCountry ---
-
-        spec.Operation<DeleteCountryRequest, DeleteCountryResponse>(
-            "DeleteCountry",
-            (req, state) =>
-            {
-                // --- stateless ---
-                if (req.Claims.Role != "admin")
-                    // Non-admin callers get NotAuthorized
-                    return Expect
-                        .That<DeleteCountryResponse>(
-                            r => r is DeleteCountryResponse.Forbidden,
-                            "only platform admins are authorized to do this action"
-                        )
-                        .SameState();
-
-                // --- state ---
-                var country = state.Countries.FirstOrDefault(c => c.Id == req.CountryId);
-                if (country is null)
-                    // Non-existent country ID returns NotFound
-                    return Expect
-                        .That<DeleteCountryResponse>(
-                            r => r is DeleteCountryResponse.NotFound,
-                            "country with the given ID does not exist"
-                        )
-                        .SameState();
-
-                // Valid deletion returns Ok
-                return Expect
-                    .That<DeleteCountryResponse>(
-                        r => r is DeleteCountryResponse.Ok,
-                        "successful deletion returns Ok"
-                    )
-                    .ThenState<YellowPagesState>(
-                        (_, s) =>
-                        {
-                            var removed = s.Countries.RemoveAll(c => c.Id == req.CountryId);
-                            Invariant.Assert(removed == 1, "expected exactly one country removed");
-                        },
-                        mock: () => new DeleteCountryResponse.Ok()
-                    );
+                    .SameState();
             }
         );
 

@@ -2,7 +2,6 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.IdentityModel.Tokens;
 using Spec.Model;
@@ -23,26 +22,20 @@ public class HttpTarget(HttpClient http, string jwtSecret) : ITarget
     {
         var (path, body, claims) = request switch
         {
-            CreateCountryRequest r => (
-                "/rpc/create_country",
-                new JsonObject { ["code"] = r.Code },
+            CreateTimerRequest r => (
+                "/rpc/create_timer",
+                new JsonObject { ["slug"] = r.Slug, ["deadline"] = r.Deadline.ToString("o") },
                 r.Claims
             ),
-            UpdateCountryRequest r => (
-                "/rpc/update_country",
-                new JsonObject { ["id"] = r.CountryId.ToString(), ["code"] = r.Code },
-                r.Claims
-            ),
-            DeleteCountryRequest r => (
-                "/rpc/delete_country",
-                new JsonObject { ["id"] = r.CountryId.ToString() },
+            GetTimerRequest r => (
+                "/rpc/get_timer",
+                new JsonObject { ["id"] = r.TimerId.ToString() },
                 r.Claims
             ),
             _ => throw new ArgumentException($"Unknown request type: {typeof(TRequest).Name}"),
         };
 
         var jwt = CreateJwt(claims);
-
         var msg = new HttpRequestMessage(HttpMethod.Post, path)
         {
             Content = JsonContent.Create(body),
@@ -62,21 +55,11 @@ public class HttpTarget(HttpClient http, string jwtSecret) : ITarget
     private string CreateJwt(Claims c)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret));
-        ;
-
         var token = new JwtSecurityToken(
-            claims:
-            [
-                new("sub", c.Sub),
-                new("role", c.Role),
-                new("org_id", c.OrgId),
-                new("org_role", c.OrgRole),
-                new("orgs", JsonSerializer.Serialize(c.Orgs)),
-            ],
+            claims: [new("sub", c.Sub), new("role", c.Role)],
             expires: DateTimeOffset.FromUnixTimeSeconds(9999999999).UtcDateTime,
             signingCredentials: new(key, SecurityAlgorithms.HmacSha256)
         );
-
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 }

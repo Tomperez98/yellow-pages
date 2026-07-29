@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -25,42 +26,46 @@ type Response struct {
 // --- Operation-specific payloads ---
 
 type Claims struct {
-	Sub     string          `json:"sub"`
-	Role    string          `json:"role"`
-	OrgID   string          `json:"org_id"`
-	OrgRole string          `json:"org_role"`
-	Orgs    []OrgMembership `json:"orgs"`
-}
-
-type OrgMembership struct {
-	OrgID string `json:"OrgId"`
-	Role  string `json:"Role"`
+	Sub  string `json:"sub"`
+	Role string `json:"role"`
 }
 
 type CreatePayload struct {
-	Code   string `json:"code"`
-	Claims Claims `json:"claims"`
+	Slug     string `json:"slug"`
+	Deadline string `json:"deadline"`
+	Claims   Claims `json:"claims"`
 }
 
-type UpdatePayload struct {
-	ID     string `json:"id"`
-	Code   string `json:"code"`
-	Claims Claims `json:"claims"`
-}
-
-type DeletePayload struct {
+type GetPayload struct {
 	ID     string `json:"id"`
 	Claims Claims `json:"claims"`
 }
 
 // --- State ---
 
-type Country struct {
-	ID   string `json:"id"`
-	Code string `json:"code"`
+type TimerItem struct {
+	ID       string `json:"id"`
+	Slug     string `json:"slug"`
+	Deadline string `json:"deadline"`
+	Status   string `json:"status"`
 }
 
-var countries []Country
+var timers []TimerItem
+
+// ponytail: single goroutine for deadline completion
+func init() {
+	go func() {
+		for {
+			time.Sleep(500 * time.Millisecond)
+			now := time.Now().UTC().Format(time.RFC3339Nano)
+			for i := range timers {
+				if timers[i].Status == "Active" && timers[i].Deadline < now {
+					timers[i].Status = "Completed"
+				}
+			}
+		}
+	}()
+}
 
 // --- Main ---
 
@@ -83,29 +88,22 @@ func main() {
 func handle(req Request) Response {
 	switch req.Type {
 	case "reset":
-		countries = nil
+		timers = nil
 		return Response{Status: 204}
 
-	case "create_country":
+	case "create_timer":
 		var p CreatePayload
 		if err := json.Unmarshal(req.Payload, &p); err != nil {
 			return Response{Status: 400, Error: fmt.Sprintf("invalid payload: %v", err)}
 		}
-		return createCountry(p)
+		return createTimer(p)
 
-	case "update_country":
-		var p UpdatePayload
+	case "get_timer":
+		var p GetPayload
 		if err := json.Unmarshal(req.Payload, &p); err != nil {
 			return Response{Status: 400, Error: fmt.Sprintf("invalid payload: %v", err)}
 		}
-		return updateCountry(p)
-
-	case "delete_country":
-		var p DeletePayload
-		if err := json.Unmarshal(req.Payload, &p); err != nil {
-			return Response{Status: 400, Error: fmt.Sprintf("invalid payload: %v", err)}
-		}
-		return deleteCountry(p)
+		return getTimer(p)
 
 	default:
 		return Response{Status: 400, Error: fmt.Sprintf("unknown type: %s", req.Type)}
@@ -114,68 +112,35 @@ func handle(req Request) Response {
 
 // --- Handlers ---
 
-func createCountry(p CreatePayload) Response {
-	if p.Claims.Role != "admin" {
+func createTimer(p CreatePayload) Response {
+	if p.Claims.Role != "user" {
 		return Response{Status: 403, Error: "Not authorized"}
 	}
-	if p.Code == "" {
-		return Response{Status: 400, Error: "Code cannot be empty"}
+	if p.Slug == "" {
+		return Response{Status: 400, Error: "Slug cannot be empty"}
 	}
-	for _, c := range countries {
-		if c.Code == p.Code {
-			return Response{Status: 409, Error: "Country already exists"}
+	for _, t := range timers {
+		if t.Slug == p.Slug {
+			return Response{Status: 409, Error: "Timer with this slug already exists"}
 		}
 	}
 	id := uuid.Must(uuid.NewV7()).String()
-	countries = append(countries, Country{ID: id, Code: p.Code})
-	result, _ := json.Marshal(map[string]string{"CountryId": id})
+	timers = append(timers, TimerItem{ID: id, Slug: p.Slug, Deadline: p.Deadline, Status: "Active"})
+	result, _ := json.Marshal(map[string]string{"TimerId": id})
 	return Response{Status: 201, Result: result}
 }
 
-func updateCountry(p UpdatePayload) Response {
-	if p.Claims.Role != "admin" {
+func getTimer(p GetPayload) Response {
+	if p.Claims.Role != "user" {
 		return Response{Status: 403, Error: "Not authorized"}
 	}
-	if p.Code == "" {
-		return Response{Status: 400, Error: "Code cannot be empty"}
-	}
-	idx := -1
-	for i, c := range countries {
-		if c.ID == p.ID {
-			idx = i
-			break
+	for i := range timers {
+		if timers[i].ID == p.ID {
+			result, _ := json.Marshal(map[string]string{"Status": timers[i].Status})
+			return Response{Status: 200, Result: result}
 		}
 	}
-	if idx == -1 {
-		return Response{Status: 404, Error: "Country not found"}
-	}
-	for _, c := range countries {
-		if c.ID != p.ID && c.Code == p.Code {
-			return Response{Status: 409, Error: "Another country already has this code"}
-		}
-	}
-	countries[idx].Code = p.Code
-	result, _ := json.Marshal(map[string]any{})
-	return Response{Status: 200, Result: result}
-}
-
-func deleteCountry(p DeletePayload) Response {
-	if p.Claims.Role != "admin" {
-		return Response{Status: 403, Error: "Not authorized"}
-	}
-	idx := -1
-	for i, c := range countries {
-		if c.ID == p.ID {
-			idx = i
-			break
-		}
-	}
-	if idx == -1 {
-		return Response{Status: 404, Error: "Country not found"}
-	}
-	countries = append(countries[:idx], countries[idx+1:]...)
-	result, _ := json.Marshal(map[string]any{})
-	return Response{Status: 200, Result: result}
+	return Response{Status: 404, Error: "Timer not found"}
 }
 
 func write(resp Response) {

@@ -1,54 +1,35 @@
 namespace Spec.Model;
 
-// --- Claims ---
+public record Claims(string Sub, string Role);
 
-public record OrgMembership(string OrgId, string Role);
+// --- CreateTimer ---
 
-public record Claims(string Sub, string Role, string OrgId, string OrgRole, OrgMembership[] Orgs);
+public record CreateTimerRequest(Claims Claims, string Slug, DateTime Deadline);
 
-// --- Country ---
-
-public record CreateCountryRequest(Claims Claims, string Code);
-
-public abstract record CreateCountryResponse
+public abstract record CreateTimerResponse
 {
-    private CreateCountryResponse() { }
+    private CreateTimerResponse() { }
 
-    public sealed record Created(Guid CountryId) : CreateCountryResponse;
+    public sealed record Created(Guid TimerId) : CreateTimerResponse;
 
-    public sealed record Conflict : CreateCountryResponse;
+    public sealed record Conflict : CreateTimerResponse;
 
-    public sealed record BadRequest : CreateCountryResponse;
+    public sealed record BadRequest : CreateTimerResponse;
 
-    public sealed record Forbidden : CreateCountryResponse;
+    public sealed record Forbidden : CreateTimerResponse;
 }
 
-public record UpdateCountryRequest(Claims Claims, Guid CountryId, string Code);
+// --- GetTimer (polling operation) ---
 
-public abstract record UpdateCountryResponse
+public record GetTimerRequest(Claims Claims, Guid TimerId);
+
+public abstract record GetTimerResponse
 {
-    private UpdateCountryResponse() { }
+    private GetTimerResponse() { }
 
-    public sealed record Ok : UpdateCountryResponse;
+    public sealed record Ok(TimerStatus Status) : GetTimerResponse;
 
-    public sealed record NotFound : UpdateCountryResponse;
+    public sealed record NotFound : GetTimerResponse;
 
-    public sealed record Conflict : UpdateCountryResponse;
-
-    public sealed record BadRequest : UpdateCountryResponse;
-
-    public sealed record Forbidden : UpdateCountryResponse;
-}
-
-public record DeleteCountryRequest(Claims Claims, Guid CountryId);
-
-public abstract record DeleteCountryResponse
-{
-    private DeleteCountryResponse() { }
-
-    public sealed record Ok : DeleteCountryResponse;
-
-    public sealed record NotFound : DeleteCountryResponse;
-
-    public sealed record Forbidden : DeleteCountryResponse;
+    public sealed record Forbidden : GetTimerResponse;
 }

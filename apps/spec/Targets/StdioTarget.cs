@@ -77,36 +77,23 @@ public class StdioTarget : ITarget
     private static object SerializeRequest<TRequest>(TRequest request) =>
         request switch
         {
-            CreateCountryRequest r => new
+            CreateTimerRequest r => new
             {
-                type = "create_country",
-                payload = new { code = r.Code, claims = SerializeClaims(r.Claims) },
-            },
-            UpdateCountryRequest r => new
-            {
-                type = "update_country",
+                type = "create_timer",
                 payload = new
                 {
-                    id = r.CountryId.ToString(),
-                    code = r.Code,
+                    slug = r.Slug,
+                    deadline = r.Deadline.ToString("o"),
                     claims = SerializeClaims(r.Claims),
                 },
             },
-            DeleteCountryRequest r => new
+            GetTimerRequest r => new
             {
-                type = "delete_country",
-                payload = new { id = r.CountryId.ToString(), claims = SerializeClaims(r.Claims) },
+                type = "get_timer",
+                payload = new { id = r.TimerId.ToString(), claims = SerializeClaims(r.Claims) },
             },
             _ => throw new ArgumentException($"Unknown request type: {typeof(TRequest).Name}"),
         };
 
-    private static object SerializeClaims(Claims c) =>
-        new
-        {
-            sub = c.Sub,
-            role = c.Role,
-            org_id = c.OrgId,
-            org_role = c.OrgRole,
-            orgs = c.Orgs.Select(o => new { OrgId = o.OrgId, Role = o.Role }),
-        };
+    private static object SerializeClaims(Claims c) => new { sub = c.Sub, role = c.Role };
 }

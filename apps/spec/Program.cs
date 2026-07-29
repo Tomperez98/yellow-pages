@@ -9,14 +9,14 @@ var app = ConsoleApp.Create();
 
 // ---------------------------------------------------------------------------
 // test: run a named scenario against a single target
-//   dotnet run -- test --target inmemory --scenario country-crud
-//   dotnet run -- test --target http --url https://... --jwt-secret ... --scenario country-crud
+//   dotnet run -- test --target inmemory --scenario timer-lifecycle
+//   dotnet run -- test --target http --url https://... --jwt-secret ... --scenario timer-lifecycle
 // ---------------------------------------------------------------------------
 app.Add(
     "test",
     async (
         string target = "inmemory",
-        string scenario = "country-crud",
+        string scenario = "timer-lifecycle",
         bool noLock = false,
         string? url = null,
         string? jwtSecret = null,
@@ -29,8 +29,8 @@ app.Add(
                 $"Unknown scenario '{scenario}'. Valid: {string.Join(", ", ScenarioRegistry.All.Keys)}"
             );
 
-        var initialState = new YellowPagesState();
-        var spec = YellowPagesSpec.Create();
+        var initialState = new TimerState();
+        var spec = TimerSpec.Create();
 
         ApiClient.BindTo(spec);
         var client = new ApiClient(targetImpl);
@@ -49,7 +49,7 @@ app.Add(
     "conformance",
     async (
         string targets = "inmemory,http",
-        string scenario = "country-crud",
+        string scenario = "timer-lifecycle",
         bool noLock = false,
         string? url = null,
         string? jwtSecret = null,
@@ -57,7 +57,7 @@ app.Add(
     ) =>
     {
         var targetNames = targets.Split(',', StringSplitOptions.TrimEntries);
-        var initialState = new YellowPagesState();
+        var initialState = new TimerState();
 
         if (!ScenarioRegistry.All.TryGetValue(scenario, out var sc))
             throw new ArgumentException(
@@ -70,9 +70,7 @@ app.Add(
             var targetImpl = ResolveTarget(t, url, jwtSecret, stdioPath, !noLock);
             var client = new ApiClient(targetImpl);
 
-            // Each target gets a fresh spec: ExecuteWith is stateful,
-            // and InputSet captures operation refs from the spec it was built from.
-            var targetSpec = YellowPagesSpec.Create();
+            var targetSpec = TimerSpec.Create();
             ApiClient.BindTo(targetSpec);
             var suite = sc.BuildTests(targetSpec, initialState);
 
@@ -89,7 +87,6 @@ app.Add(
 
 // ---------------------------------------------------------------------------
 // list-scenarios: print registered scenarios
-//   dotnet run -- list-scenarios
 // ---------------------------------------------------------------------------
 app.Add(
     "list-scenarios",
@@ -103,7 +100,6 @@ app.Add(
 
 // ---------------------------------------------------------------------------
 // list-targets: print available targets
-//   dotnet run -- list-targets
 // ---------------------------------------------------------------------------
 app.Add(
     "list-targets",
@@ -128,7 +124,7 @@ static ITarget ResolveTarget(
 ) =>
     target switch
     {
-        "inmemory" => new InMemoryTarget(new InMemoryServer(new YellowPagesState(), threadSafe)),
+        "inmemory" => new InMemoryTarget(new InMemoryServer(new TimerState(), threadSafe)),
         "http" => url is not null && jwtSecret is not null
             ? new HttpTarget(url, jwtSecret)
             : throw new ArgumentException("--url and --jwt-secret required for HTTP target"),
@@ -145,8 +141,8 @@ static ITarget ResolveTarget(
 // ===========================================================================
 
 static async Task<bool> ExecuteTests(
-    Spec<YellowPagesState> spec,
-    YellowPagesState initialState,
+    Spec<TimerState> spec,
+    TimerState initialState,
     ApiClient client,
     TestSuite suite
 )
@@ -194,16 +190,15 @@ static async Task<bool> ExecuteTests(
 }
 
 // ===========================================================================
-// Scenario registry — maps name → IScenario.
-// To add a scenario: implement IScenario, add one line here.
+// Scenario registry
 // ===========================================================================
 
 static class ScenarioRegistry
 {
     public static readonly Dictionary<string, IScenario> All = new()
     {
-        ["country-crud"] = new CountryCrudScenario(),
-        ["country-create-only"] = new CountryCreateOnlyScenario(),
-        ["country-create-race"] = new CountryCreateRaceScenario(),
+        ["timer-lifecycle"] = new TimerLifecycleScenario(),
+        ["timer-create-only"] = new TimerCreateOnlyScenario(),
+        ["timer-slug-race"] = new TimerSlugRaceScenario(),
     };
 }
