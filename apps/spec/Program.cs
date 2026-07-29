@@ -4,6 +4,7 @@ using spec;
 using Spec.Model;
 using Spec.Scenarios;
 using Spec.Targets;
+using Spec.Transitions;
 
 var app = ConsoleApp.Create();
 
@@ -38,6 +39,39 @@ app.Add(
 
         var ok = await ExecuteTests(spec, initialState, client, suite);
         Console.WriteLine(ok ? "✓ All tests passed" : "✗ Some tests failed");
+    }
+);
+
+// ---------------------------------------------------------------------------
+// transition: run a hand-written conformance test against a target
+//   dotnet run -- transition --target inmemory --transition timer-lifecycle
+//   dotnet run -- transition --target http --url https://... --jwt-secret ... --transition timer-lifecycle
+// ---------------------------------------------------------------------------
+app.Add(
+    "transition",
+    async (
+        string target = "inmemory",
+        string transition = "timer-lifecycle",
+        bool noLock = false,
+        string? url = null,
+        string? jwtSecret = null,
+        string? stdioPath = "../../../../stdio/stdio"
+    ) =>
+    {
+        var targetImpl = ResolveTarget(target, url, jwtSecret, stdioPath, !noLock);
+        if (!TransitionRegistry.All.TryGetValue(transition, out var tr))
+            throw new ArgumentException(
+                $"Unknown transition '{transition}'. Valid: {string.Join(", ", TransitionRegistry.All.Keys)}"
+            );
+
+        var initialState = new TimerState();
+        var spec = TimerSpec.Create();
+        var client = new ApiClient(targetImpl);
+
+        await client.ResetAsync();
+
+        await tr.RunAsync(spec, client, initialState);
+        Console.WriteLine("✓ Transition passed");
     }
 );
 
@@ -94,6 +128,19 @@ app.Add(
     {
         Console.WriteLine("Scenarios:");
         foreach (var (name, _) in ScenarioRegistry.All)
+            Console.WriteLine($"  {name}");
+    }
+);
+
+// ---------------------------------------------------------------------------
+// list-transitions: print registered transitions
+// ---------------------------------------------------------------------------
+app.Add(
+    "list-transitions",
+    () =>
+    {
+        Console.WriteLine("Transitions:");
+        foreach (var (name, _) in TransitionRegistry.All)
             Console.WriteLine($"  {name}");
     }
 );
@@ -200,5 +247,17 @@ static class ScenarioRegistry
         ["timer-lifecycle"] = new TimerLifecycleScenario(),
         ["timer-create-only"] = new TimerCreateOnlyScenario(),
         ["timer-slug-race"] = new TimerSlugRaceScenario(),
+    };
+}
+
+// ===========================================================================
+// Transition registry
+// ===========================================================================
+
+static class TransitionRegistry
+{
+    public static readonly Dictionary<string, ITransition> All = new()
+    {
+        ["timer-lifecycle"] = new TimerLifecycleTransition(),
     };
 }

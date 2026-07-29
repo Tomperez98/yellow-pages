@@ -147,19 +147,24 @@ public class InMemoryServer : IDisposable
         }
     }
 
-    public void Dispose() => _deadlineCts.Cancel();
+    public void Dispose()
+    {
+        _deadlineCts.Cancel();
+        GC.SuppressFinalize(this);
+    }
 
     private static TimerState Clone(TimerState s) =>
         new()
         {
-            Items = s
-                .Items.Select(i => new TimerItem
+            Items =
+            [
+                .. s.Items.Select(i => new TimerItem
                 {
                     Id = i.Id,
                     Slug = i.Slug,
                     Deadline = i.Deadline,
                     Status = i.Status,
-                })
-                .ToList(),
+                }),
+            ],
         };
 }
