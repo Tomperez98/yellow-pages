@@ -9,7 +9,7 @@ namespace Spec.Scenarios;
 /// </summary>
 public class TimerLifecycleScenario : IScenario
 {
-    private static readonly DateTime NearFuture = DateTime.UtcNow.AddSeconds(5);
+    private static readonly DateTime NearFuture = DateTime.UtcNow.AddSeconds(1);
 
     public TestSuite BuildTests(Spec<TimerState> spec, TimerState initialState)
     {
