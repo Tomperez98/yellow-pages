@@ -80,20 +80,13 @@ public class StdioTarget : ITarget
             CreateTimerRequest r => new
             {
                 type = "create_timer",
-                payload = new
-                {
-                    slug = r.Slug,
-                    deadline = r.Deadline.ToString("o"),
-                    claims = SerializeClaims(r.Claims),
-                },
+                payload = new { slug = r.Slug, deadline = r.Deadline.ToString("o") },
             },
             GetTimerRequest r => new
             {
                 type = "get_timer",
-                payload = new { id = r.TimerId.ToString(), claims = SerializeClaims(r.Claims) },
+                payload = new { id = r.TimerId.ToString() },
             },
             _ => throw new ArgumentException($"Unknown request type: {typeof(TRequest).Name}"),
         };
-
-    private static object SerializeClaims(Claims c) => new { sub = c.Sub, role = c.Role };
 }

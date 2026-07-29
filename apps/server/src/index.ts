@@ -18,19 +18,6 @@ function withLock<T>(fn: () => T | Promise<T>): Promise<T> {
 	});
 }
 
-// ---------- JWT claims ----------
-interface Claims {
-	sub: string;
-	role: string;
-}
-
-function parseClaims(token: string, secret: string): Claims {
-	const payload = jwt.verify(token, secret, {
-		algorithms: ["HS256"],
-	}) as Record<string, unknown>;
-	return { sub: payload.sub as string, role: payload.role as string };
-}
-
 // ---------- State ----------
 type TimerStatus = "Active" | "Completed";
 
@@ -46,9 +33,9 @@ const timers: TimerItem[] = [];
 // ponytail: single interval for deadline completion
 const DEADLINE_CHECK_MS = 500;
 setInterval(() => {
-	const now = new Date().toISOString();
+	const now = Date.now();
 	for (const t of timers) {
-		if (t.status === "Active" && t.deadline < now) {
+		if (t.status === "Active" && new Date(t.deadline).getTime() < now) {
 			t.status = "Completed";
 		}
 	}
@@ -58,9 +45,7 @@ setInterval(() => {
 async function createTimer(
 	slug: string,
 	deadline: string,
-	role: string,
 ): Promise<ResponseResult> {
-	if (role !== "user") return { status: 403, error: "Not authorized" };
 	if (!slug || slug.trim().length === 0)
 		return { status: 400, error: "Slug cannot be empty" };
 
@@ -74,9 +59,7 @@ async function createTimer(
 	});
 }
 
-async function getTimer(id: string, role: string): Promise<ResponseResult> {
-	if (role !== "user") return { status: 403, error: "Not authorized" };
-
+async function getTimer(id: string): Promise<ResponseResult> {
 	const timer = timers.find((t) => t.id === id);
 	if (!timer) return { status: 404, error: "Timer not found" };
 
@@ -105,9 +88,8 @@ Bun.serve({
 			return respond({ status: 403, error: "Not authorized" });
 		}
 
-		let claims: Claims;
 		try {
-			claims = parseClaims(auth.slice(7), SECRET);
+			jwt.verify(auth.slice(7), SECRET, { algorithms: ["HS256"] });
 		} catch {
 			return respond({ status: 403, error: "Not authorized" });
 		}
@@ -119,7 +101,7 @@ Bun.serve({
 			body = {};
 		}
 
-		const result = await route.handler(body, claims.role);
+		const result = await route.handler(body);
 		return respond(result);
 	},
 });
@@ -128,10 +110,7 @@ type ResponseResult =
 	| { status: number; data: unknown }
 	| { status: number; error: string };
 
-type Handler = (
-	body: Record<string, unknown>,
-	role: string,
-) => Promise<ResponseResult>;
+type Handler = (body: Record<string, unknown>) => Promise<ResponseResult>;
 
 function respond(result: ResponseResult): Response {
 	const payload = "error" in result ? { error: result.error } : result.data;
@@ -143,11 +122,11 @@ function respond(result: ResponseResult): Response {
 
 const ROUTES: Record<string, { handler: Handler }> = {
 	"/rpc/create_timer": {
-		handler: (body, role) =>
-			createTimer(body.slug as string, body.deadline as string, role),
+		handler: (body) =>
+			createTimer(body.slug as string, body.deadline as string),
 	},
 	"/rpc/get_timer": {
-		handler: (body, role) => getTimer(body.id as string, role),
+		handler: (body) => getTimer(body.id as string),
 	},
 };
 

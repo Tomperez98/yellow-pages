@@ -23,14 +23,6 @@ public static class TimerSpec
             "CreateTimer",
             (req, state) =>
             {
-                if (req.Claims.Role != "user")
-                    return Expect
-                        .That<CreateTimerResponse>(
-                            r => r is CreateTimerResponse.Forbidden,
-                            "only authenticated users can create timers"
-                        )
-                        .SameState();
-
                 if (string.IsNullOrWhiteSpace(req.Slug))
                     return Expect
                         .That<CreateTimerResponse>(
@@ -106,14 +98,6 @@ public static class TimerSpec
             "GetTimer",
             (req, state) =>
             {
-                if (req.Claims.Role != "user")
-                    return Expect
-                        .That<GetTimerResponse>(
-                            r => r is GetTimerResponse.Forbidden,
-                            "only authenticated users can read timers"
-                        )
-                        .SameState();
-
                 var timer = state.Items.FirstOrDefault(t => t.Id == req.TimerId);
                 if (timer is null)
                     return Expect

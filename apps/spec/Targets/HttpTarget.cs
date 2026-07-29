@@ -20,22 +20,20 @@ public class HttpTarget(HttpClient http, string jwtSecret) : ITarget
 
     public async Task<TargetResponse> AsyncSend<TRequest>(TRequest request)
     {
-        var (path, body, claims) = request switch
+        var (path, body) = request switch
         {
             CreateTimerRequest r => (
                 "/rpc/create_timer",
-                new JsonObject { ["slug"] = r.Slug, ["deadline"] = r.Deadline.ToString("o") },
-                r.Claims
+                new JsonObject { ["slug"] = r.Slug, ["deadline"] = r.Deadline.ToString("o") }
             ),
             GetTimerRequest r => (
                 "/rpc/get_timer",
-                new JsonObject { ["id"] = r.TimerId.ToString() },
-                r.Claims
+                new JsonObject { ["id"] = r.TimerId.ToString() }
             ),
             _ => throw new ArgumentException($"Unknown request type: {typeof(TRequest).Name}"),
         };
 
-        var jwt = CreateJwt(claims);
+        var jwt = CreateJwt();
         var msg = new HttpRequestMessage(HttpMethod.Post, path)
         {
             Content = JsonContent.Create(body),
@@ -52,11 +50,11 @@ public class HttpTarget(HttpClient http, string jwtSecret) : ITarget
         return new TargetResponse.Err(status, resp.ReasonPhrase!);
     }
 
-    private string CreateJwt(Claims c)
+    private string CreateJwt()
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret));
         var token = new JwtSecurityToken(
-            claims: [new("sub", c.Sub), new("role", c.Role)],
+            claims: [new("sub", "user-1"), new("role", "user")],
             expires: DateTimeOffset.FromUnixTimeSeconds(9999999999).UtcDateTime,
             signingCredentials: new(key, SecurityAlgorithms.HmacSha256)
         );

@@ -32,11 +32,9 @@ public class InMemoryTarget(InMemoryServer server) : ITarget
             CreateTimerResponse.Created => Ok(HttpStatusCode.Created, resp),
             CreateTimerResponse.Conflict => Err(HttpStatusCode.Conflict),
             CreateTimerResponse.BadRequest => Err(HttpStatusCode.BadRequest),
-            CreateTimerResponse.Forbidden => Err(HttpStatusCode.Forbidden),
 
             GetTimerResponse.Ok => Ok(HttpStatusCode.OK, resp),
             GetTimerResponse.NotFound => Err(HttpStatusCode.NotFound),
-            GetTimerResponse.Forbidden => Err(HttpStatusCode.Forbidden),
 
             _ => throw new ArgumentException($"Unknown response type: {resp.GetType().Name}"),
         };
@@ -99,9 +97,6 @@ public class InMemoryServer : IDisposable
 
     public async Task<CreateTimerResponse> CreateTimerAsync(CreateTimerRequest req)
     {
-        if (req.Claims.Role != "user")
-            return new CreateTimerResponse.Forbidden();
-
         if (string.IsNullOrWhiteSpace(req.Slug))
             return new CreateTimerResponse.BadRequest();
 
@@ -135,9 +130,6 @@ public class InMemoryServer : IDisposable
 
     public async Task<GetTimerResponse> GetTimerAsync(GetTimerRequest req)
     {
-        if (req.Claims.Role != "user")
-            return new GetTimerResponse.Forbidden();
-
         if (_threadSafe)
             await _lock.WaitAsync();
         try

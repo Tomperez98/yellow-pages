@@ -33,8 +33,6 @@ public class ApiClient(ITarget target)
                 new CreateTimerResponse.Conflict(),
             TargetResponse.Err { Status: HttpStatusCode.BadRequest } =>
                 new CreateTimerResponse.BadRequest(),
-            TargetResponse.Err { Status: HttpStatusCode.Forbidden } =>
-                new CreateTimerResponse.Forbidden(),
             _ => throw new InvalidOperationException($"Unexpected response: {r}"),
         };
     }
@@ -47,8 +45,6 @@ public class ApiClient(ITarget target)
             TargetResponse.Ok ok => new GetTimerResponse.Ok(ok.Deserialize<GetOk>().Status),
             TargetResponse.Err { Status: HttpStatusCode.NotFound } =>
                 new GetTimerResponse.NotFound(),
-            TargetResponse.Err { Status: HttpStatusCode.Forbidden } =>
-                new GetTimerResponse.Forbidden(),
             _ => throw new InvalidOperationException($"Unexpected response: {r}"),
         };
     }

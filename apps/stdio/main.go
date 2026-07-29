@@ -25,20 +25,13 @@ type Response struct {
 
 // --- Operation-specific payloads ---
 
-type Claims struct {
-	Sub  string `json:"sub"`
-	Role string `json:"role"`
-}
-
 type CreatePayload struct {
 	Slug     string `json:"slug"`
 	Deadline string `json:"deadline"`
-	Claims   Claims `json:"claims"`
 }
 
 type GetPayload struct {
-	ID     string `json:"id"`
-	Claims Claims `json:"claims"`
+	ID string `json:"id"`
 }
 
 // --- State ---
@@ -57,9 +50,13 @@ func init() {
 	go func() {
 		for {
 			time.Sleep(500 * time.Millisecond)
-			now := time.Now().UTC().Format(time.RFC3339Nano)
+			now := time.Now()
 			for i := range timers {
-				if timers[i].Status == "Active" && timers[i].Deadline < now {
+				deadline, err := time.Parse(time.RFC3339Nano, timers[i].Deadline)
+				if err != nil {
+					continue
+				}
+				if timers[i].Status == "Active" && deadline.Before(now) {
 					timers[i].Status = "Completed"
 				}
 			}
@@ -113,9 +110,6 @@ func handle(req Request) Response {
 // --- Handlers ---
 
 func createTimer(p CreatePayload) Response {
-	if p.Claims.Role != "user" {
-		return Response{Status: 403, Error: "Not authorized"}
-	}
 	if p.Slug == "" {
 		return Response{Status: 400, Error: "Slug cannot be empty"}
 	}
@@ -131,9 +125,6 @@ func createTimer(p CreatePayload) Response {
 }
 
 func getTimer(p GetPayload) Response {
-	if p.Claims.Role != "user" {
-		return Response{Status: 403, Error: "Not authorized"}
-	}
 	for i := range timers {
 		if timers[i].ID == p.ID {
 			result, _ := json.Marshal(map[string]string{"Status": timers[i].Status})

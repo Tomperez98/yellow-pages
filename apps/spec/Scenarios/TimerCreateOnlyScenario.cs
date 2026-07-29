@@ -9,7 +9,6 @@ namespace Spec.Scenarios;
 /// </summary>
 public class TimerCreateOnlyScenario : IScenario
 {
-    private static readonly Claims User = new("user-1", "user");
     private static readonly DateTime Deadline = DateTime.UtcNow.AddHours(1);
 
     public TestSuite BuildTests(Spec<TimerState> spec, TimerState initialState)
@@ -27,12 +26,12 @@ public class TimerCreateOnlyScenario : IScenario
         var inputs = new InputSet
         {
             create
-                .With(new CreateTimerRequest(User, "tea", Deadline), "Create tea timer")
+                .With(new CreateTimerRequest("tea", Deadline), "Create tea timer")
                 .WithoutPolling(),
             create
-                .With(new CreateTimerRequest(User, "coffee", Deadline), "Create coffee timer")
+                .With(new CreateTimerRequest("coffee", Deadline), "Create coffee timer")
                 .WithoutPolling(),
-            create.With(new CreateTimerRequest(User, "", Deadline), "Empty slug"),
+            create.With(new CreateTimerRequest("", Deadline), "Empty slug"),
         };
 
         return new TestSuite.Sequential(
