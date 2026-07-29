@@ -12,6 +12,9 @@
         "typescript": "5.9.2",
       },
     },
+    "apps/Spec": {
+      "name": "spec",
+    },
     "apps/server": {
       "name": "server",
       "dependencies": {
@@ -20,9 +23,6 @@
       "devDependencies": {
         "@types/jsonwebtoken": "^9.0.10",
       },
-    },
-    "apps/spec": {
-      "name": "spec",
     },
     "apps/stdio": {
       "name": "stdio",
@@ -103,7 +103,7 @@
 
     "skills": ["skills@1.5.20", "", { "dependencies": { "yaml": "^2.8.3" }, "bin": { "skills": "bin/cli.mjs", "add-skill": "bin/cli.mjs" } }, "sha512-lPl5KzMfTW+qwHFwc8t6R+wAqmdmSHw1+HWbGdJ/FZYbWLdB34bAZNFWiencM5DVoRaKAgXArmfTWMlNAbl9Gg=="],
 
-    "spec": ["spec@workspace:apps/spec"],
+    "spec": ["spec@workspace:apps/Spec"],
 
     "stdio": ["stdio@workspace:apps/stdio"],
 
