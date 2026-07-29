@@ -1,5 +1,3 @@
-import jwt from "jsonwebtoken";
-
 // ---------- Mutex ----------
 // ponytail: promise-chain lock, per-account if contention matters
 let lock: Promise<void> = Promise.resolve();
@@ -67,7 +65,6 @@ async function getTimer(id: string): Promise<ResponseResult> {
 }
 
 // ---------- Server ----------
-const SECRET = Bun.env.JWT_SECRET || "dev-secret-at-least-128-bits-long!!";
 const PORT = Number(Bun.env.PORT) || 3000;
 
 Bun.serve({
@@ -82,17 +79,6 @@ Bun.serve({
 
 		const route = ROUTES[url.pathname];
 		if (!route) return new Response("Not Found", { status: 404 });
-
-		const auth = req.headers.get("authorization");
-		if (!auth?.startsWith("Bearer ")) {
-			return respond({ status: 403, error: "Not authorized" });
-		}
-
-		try {
-			jwt.verify(auth.slice(7), SECRET, { algorithms: ["HS256"] });
-		} catch {
-			return respond({ status: 403, error: "Not authorized" });
-		}
 
 		let body: Record<string, unknown>;
 		try {
@@ -131,4 +117,3 @@ const ROUTES: Record<string, { handler: Handler }> = {
 };
 
 console.log(`Server running on http://localhost:${PORT}`);
-console.log(`JWT secret: ${SECRET}`);

@@ -36,9 +36,9 @@ dotnet run --project apps/Spec -- test --target inmemory --scenario timer-slug-r
 ### HTTP (Bun server must be running)
 
 ```sh
-dotnet run --project apps/Spec -- test --target http --url http://localhost:3000 --jwt-secret 'dev-secret-at-least-128-bits-long!!' --scenario timer-lifecycle
-dotnet run --project apps/Spec -- test --target http --url http://localhost:3000 --jwt-secret 'dev-secret-at-least-128-bits-long!!' --scenario timer-create-only
-dotnet run --project apps/Spec -- test --target http --url http://localhost:3000 --jwt-secret 'dev-secret-at-least-128-bits-long!!' --scenario timer-slug-race
+dotnet run --project apps/Spec -- test --target http --url http://localhost:3000 --scenario timer-lifecycle
+dotnet run --project apps/Spec -- test --target http --url http://localhost:3000 --scenario timer-create-only
+dotnet run --project apps/Spec -- test --target http --url http://localhost:3000 --scenario timer-slug-race
 ```
 
 ### Stdio (Go binary)
@@ -55,7 +55,7 @@ dotnet run --project apps/Spec -- test --target stdio --scenario timer-slug-race
 # Like unit tests, but every response is validated by the Accordant model
 dotnet run --project apps/Spec -- transition --target inmemory --transition timer-lifecycle
 dotnet run --project apps/Spec -- transition --target stdio --transition timer-lifecycle
-dotnet run --project apps/Spec -- transition --target http --url http://localhost:3000 --jwt-secret 'dev-secret-at-least-128-bits-long!!' --transition timer-lifecycle
+dotnet run --project apps/Spec -- transition --target http --url http://localhost:3000 --transition timer-lifecycle
 ```
 
 ### Conformance
@@ -63,8 +63,7 @@ dotnet run --project apps/Spec -- transition --target http --url http://localhos
 ```sh
 # All three targets in one run
 dotnet run --project apps/Spec -- conformance --targets inmemory,http,stdio \
-  --url http://localhost:3000 \
-  --jwt-secret 'dev-secret-at-least-128-bits-long!!'
+  --url http://localhost:3000
 ```
 
 ## How it works
@@ -74,7 +73,7 @@ Three targets implement the same timer API — create by slug + deadline, auto-t
 | Target | Language | Transport |
 |--------|----------|-----------|
 | `inmemory` | C# | Direct calls |
-| `http` | TypeScript/Bun | HTTP + JWT |
+| `http` | TypeScript/Bun | HTTP |
 | `stdio` | Go | JSON-lines over stdin/stdout |
 
 The spec defines `CreateTimer` + `GetTimer` operations and invariants (`no duplicate slugs`, `all timer IDs are version 7`). Accordant generates sequential and concurrent tests, runs them against each target, and asserts identical behavior.

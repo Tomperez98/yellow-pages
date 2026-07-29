@@ -1,17 +1,13 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json.Nodes;
-using Microsoft.IdentityModel.Tokens;
 using Spec.Model;
 
 namespace Spec.Targets;
 
-public class HttpTarget(HttpClient http, string jwtSecret) : ITarget
+public class HttpTarget(HttpClient http) : ITarget
 {
-    public HttpTarget(string url, string jwtSecret)
-        : this(new HttpClient { BaseAddress = new Uri(url) }, jwtSecret) { }
+    public HttpTarget(string url)
+        : this(new HttpClient { BaseAddress = new Uri(url) }) { }
 
     public async Task AsyncReset()
     {
@@ -33,12 +29,10 @@ public class HttpTarget(HttpClient http, string jwtSecret) : ITarget
             _ => throw new ArgumentException($"Unknown request type: {typeof(TRequest).Name}"),
         };
 
-        var jwt = CreateJwt();
         var msg = new HttpRequestMessage(HttpMethod.Post, path)
         {
             Content = JsonContent.Create(body),
         };
-        msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", jwt);
 
         var resp = await http.SendAsync(msg);
         var respBody = await resp.Content.ReadAsStringAsync();
@@ -50,14 +44,5 @@ public class HttpTarget(HttpClient http, string jwtSecret) : ITarget
         return new TargetResponse.Err(status, resp.ReasonPhrase!);
     }
 
-    private string CreateJwt()
-    {
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret));
-        var token = new JwtSecurityToken(
-            claims: [new("sub", "user-1"), new("role", "user")],
-            expires: DateTimeOffset.FromUnixTimeSeconds(9999999999).UtcDateTime,
-            signingCredentials: new(key, SecurityAlgorithms.HmacSha256)
-        );
-        return new JwtSecurityTokenHandler().WriteToken(token);
-    }
+
 }

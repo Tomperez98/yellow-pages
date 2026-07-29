@@ -11,7 +11,7 @@ var app = ConsoleApp.Create();
 // ---------------------------------------------------------------------------
 // test: run a named scenario against a single target
 //   dotnet run -- test --target inmemory --scenario timer-lifecycle
-//   dotnet run -- test --target http --url https://... --jwt-secret ... --scenario timer-lifecycle
+//   dotnet run -- test --target http --url https://... --scenario timer-lifecycle
 // ---------------------------------------------------------------------------
 app.Add(
     "test",
@@ -20,11 +20,10 @@ app.Add(
         string scenario = "timer-lifecycle",
         bool noLock = false,
         string? url = null,
-        string? jwtSecret = null,
         string? stdioPath = "../../../../stdio/stdio"
     ) =>
     {
-        var targetImpl = ResolveTarget(target, url, jwtSecret, stdioPath, !noLock);
+        var targetImpl = ResolveTarget(target, url, stdioPath, !noLock);
         if (!ScenarioRegistry.All.TryGetValue(scenario, out var sc))
             throw new ArgumentException(
                 $"Unknown scenario '{scenario}'. Valid: {string.Join(", ", ScenarioRegistry.All.Keys)}"
@@ -45,7 +44,7 @@ app.Add(
 // ---------------------------------------------------------------------------
 // transition: run a hand-written conformance test against a target
 //   dotnet run -- transition --target inmemory --transition timer-lifecycle
-//   dotnet run -- transition --target http --url https://... --jwt-secret ... --transition timer-lifecycle
+//   dotnet run -- transition --target http --url https://... --transition timer-lifecycle
 // ---------------------------------------------------------------------------
 app.Add(
     "transition",
@@ -54,11 +53,10 @@ app.Add(
         string transition = "timer-lifecycle",
         bool noLock = false,
         string? url = null,
-        string? jwtSecret = null,
         string? stdioPath = "../../../../stdio/stdio"
     ) =>
     {
-        var targetImpl = ResolveTarget(target, url, jwtSecret, stdioPath, !noLock);
+        var targetImpl = ResolveTarget(target, url, stdioPath, !noLock);
         if (!TransitionRegistry.All.TryGetValue(transition, out var tr))
             throw new ArgumentException(
                 $"Unknown transition '{transition}'. Valid: {string.Join(", ", TransitionRegistry.All.Keys)}"
@@ -77,7 +75,7 @@ app.Add(
 
 // ---------------------------------------------------------------------------
 // conformance: run a scenario against multiple targets
-//   dotnet run -- conformance --targets inmemory,http --url ... --jwt-secret ...
+//   dotnet run -- conformance --targets inmemory,http --url ...
 // ---------------------------------------------------------------------------
 app.Add(
     "conformance",
@@ -86,7 +84,6 @@ app.Add(
         string scenario = "timer-lifecycle",
         bool noLock = false,
         string? url = null,
-        string? jwtSecret = null,
         string? stdioPath = "../../../../stdio/stdio"
     ) =>
     {
@@ -101,7 +98,7 @@ app.Add(
         var allOk = true;
         foreach (var t in targetNames)
         {
-            var targetImpl = ResolveTarget(t, url, jwtSecret, stdioPath, !noLock);
+            var targetImpl = ResolveTarget(t, url, stdioPath, !noLock);
             var client = new ApiClient(targetImpl);
 
             var targetSpec = TimerSpec.Create();
@@ -165,16 +162,15 @@ app.Run(args);
 static ITarget ResolveTarget(
     string target,
     string? url,
-    string? jwtSecret,
     string? stdioPath,
     bool threadSafe = true
 ) =>
     target switch
     {
         "inmemory" => new InMemoryTarget(new InMemoryServer(new TimerState(), threadSafe)),
-        "http" => url is not null && jwtSecret is not null
-            ? new HttpTarget(url, jwtSecret)
-            : throw new ArgumentException("--url and --jwt-secret required for HTTP target"),
+        "http" => url is not null
+            ? new HttpTarget(url)
+            : throw new ArgumentException("--url required for HTTP target"),
         "stdio" => stdioPath is not null
             ? new StdioTarget(stdioPath)
             : throw new ArgumentException("--stdio-path required for stdio target"),
