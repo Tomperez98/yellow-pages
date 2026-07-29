@@ -1,162 +1,72 @@
-# Timer Spec — Accordant conformance testing
+# Timer Spec
 
-Spec-driven testing for a timer API using [Microsoft Accordant](https://github.com/microsoft/accordant). A single spec generates tests that run against three independent implementations of the same business logic, verifying they behave identically.
+Spec-driven conformance testing for a timer API, using [Microsoft Accordant](https://github.com/microsoft/accordant). One spec, three independent implementations — must behave identically.
 
-## Domain
-
-Create a timer with a user-defined **slug** (unique) and a **deadline**. The timer starts `Active` and autonomously transitions to `Completed` when the deadline is reached — no client API call triggers this.
-
-| Concept | Accordant feature |
-|---------|-------------------|
-| Deadline-based `Active → Completed` | `AsyncOperation.Create` + step function |
-| Framework waits for async completion | `PollingSetup` on the `OperationInput` |
-| Slug uniqueness across concurrent creates | `Invariant.Assert` + `GenerateConcurrentTests` |
-| `--no-lock` flag to demonstrate the race | TOCTOU gap in `InMemoryServer` |
-
-## Scenarios
-
-| Scenario | Mode | What it tests |
-|----------|------|---------------|
-| `timer-lifecycle` | Sequential | Create a timer with a 5s deadline, poll `GetTimer` until the async step function transitions it to `Completed`. |
-| `timer-create-only` | Sequential | Create-only: validation branches (Forbidden, BadRequest, Conflict) |
-| `timer-slug-race` | Concurrent | Two users create the same slug concurrently — TOCTOU race detected by the invariant |
-
-### Async step function resolution
-
-`TimerLifecycleScenario` uses `CreateTimer` with a deadline 5 seconds in the future. The spec's `CreateTimer` operation triggers the async deadline monitor that transitions `Active → Completed`:
-
-```csharp
-.Triggers(AsyncOperation.Create<TimerState>(
-    isTerminal: s =>
-    {
-        var timer = s.Items.FirstOrDefault(t => t.Slug == req.Slug);
-        Invariant.Assert(timer is not null, "timer must exist");
-        return timer!.Status == TimerStatus.Completed;
-    },
-    transitions:
-    [
-        next =>
-        {
-            var timer = next.Items.First(t => t.Slug == req.Slug);
-            timer.Status = TimerStatus.Completed;
-        },
-    ]
-))
-```
-
-The `OperationInput` tells the framework how to poll:
-
-```csharp
-create.With(req, "Create near-future timer")
-      .WithPolling(new PollingSetup
-      {
-          Operation = "GetTimer",    // framework polls this repeatedly
-          WaitTimeInMs = 100,        // every 100ms
-          MaxRetryCount = 100,       // liveness: fail if still Active after 10s
-      })
-```
-
-A derivation maps the `CreateTimer` response to a `GetTimer` polling request. The background `RunDeadlineMonitor` (500ms interval) fires after the deadline, the framework observes `Completed` via polling, and the step function terminates.
-
-Non-lifecycle scenarios skip async resolution with `.WithoutPolling()` on the operation inputs (and `UnwindAllTerminatingStepFunctions = false` for concurrent tests to avoid segment name collisions during generation).
-
-### Race condition detection
-
-`TimerSlugRaceScenario` catches a TOCTOU race on slug uniqueness:
+## Quick start
 
 ```sh
-# With lock (default) — SemaphoreSlim serializes check-then-insert
-$ dotnet run -- test --scenario timer-slug-race
-✓ All tests passed
+# 1. Build
+bun run build
 
-# Without lock — gap exposed, duplicate slug invariant fires
-$ dotnet run -- test --scenario timer-slug-race --no-lock
-✗ Some tests failed
-The spec cannot explain the behavior of concurrently invoking the following operations
+# 2. Start the Bun server
+bun run apps/server/src/index.ts
+# → Server running on http://localhost:3000
 ```
 
-The gap in `InMemoryServer.CreateTimerAsync`:
-
-```csharp
-if (_state.Items.Any(t => t.Slug == req.Slug))  // ← check
-    return new CreateTimerResponse.Conflict();
-
-await Task.Yield();  // ← TOCTOU window: without lock, thread B enters here
-
-_state.Items.Add(...);  // ← insert
-```
-
-The invariant in `Spec.cs` that catches the violation:
-
-```csharp
-Invariant.Assert(
-    s.Items.Select(t => t.Slug).Distinct().Count() == s.Items.Count,
-    "duplicate slugs"
-);
-```
-
-`GenerateConcurrentTests` validates **linearizability**: even though operations run concurrently, results must be explainable by some sequential ordering. If both concurrent creates return `Created`, no sequential order explains it — the invariant fires.
-
-## Targets
-
-The `ITarget` interface bridges the spec runner and an implementation:
-
-```
-ITarget
-├── AsyncReset()          — wipe state before each test case
-└── AsyncSend<T>(T)       — send a request, get back a TargetResponse
-```
-
-| Target | Implementation | Communication | Use case |
-|--------|---------------|---------------|----------|
-| `inmemory` | C# (`InMemoryServer`) | Direct method calls | Fastest feedback during spec authoring |
-| `http` | TypeScript/Bun (`apps/server`) | HTTP + JWT | Validates the real server over the wire |
-| `stdio` | Go (`apps/stdio`) | JSON-lines over stdin/stdout | Validates a compiled binary with no network |
-
-All three run a background deadline monitor that transitions `Active → Completed` asynchronously.
-
-## How stdio works
-
-The Go binary reads JSON-lines from stdin, writes one JSON-line response per line. `StdioTarget` spawns it as a child process.
-
-**Envelope:**
-
-```
-→ {"type":"create_timer","payload":{"slug":"tea","deadline":"2026-07-29T...","claims":{...}}}
-← {"status":201,"result":{"TimerId":"019f..."}}
-
-→ {"type":"get_timer","payload":{"id":"019f...","claims":{...}}}
-← {"status":200,"result":{"Status":"Completed"}}
-
-→ {"type":"reset"}
-← {"status":204}
-```
-
-No JWT — claims are passed inline since stdio is a trusted local pipe.
-
-## Running
+## Commands
 
 ```sh
-# List available commands
-dotnet run --project apps/spec -- list-scenarios
-dotnet run --project apps/spec -- list-targets
+# List what's available
+dotnet run --project apps/spec -- list-scenarios   # timer-lifecycle, timer-create-only, timer-slug-race
+dotnet run --project apps/spec -- list-targets     # inmemory, http, stdio
+```
 
-# Single target, single scenario
+### In-memory (no server needed)
+
+```sh
 dotnet run --project apps/spec -- test --target inmemory --scenario timer-lifecycle
+dotnet run --project apps/spec -- test --target inmemory --scenario timer-create-only
 dotnet run --project apps/spec -- test --target inmemory --scenario timer-slug-race
 
-# Demo the race condition
+# Race condition: with lock → pass, without → fail
 dotnet run --project apps/spec -- test --target inmemory --scenario timer-slug-race --no-lock
-
-# Conformance: one scenario against multiple targets
-dotnet run --project apps/spec -- conformance --targets inmemory,http,stdio
-
-# In-memory + stdio only (no server needed)
-bun run conformance
-
-# All three targets (requires Go, Bun, .NET)
-bun run compliance
-
-# With a running HTTP server
-dotnet run --project apps/spec -- conformance --target http --url http://localhost:3000 --jwt-secret <secret>
 ```
+
+### HTTP (Bun server must be running)
+
+```sh
+dotnet run --project apps/spec -- test --target http --url http://localhost:3000 --jwt-secret 'dev-secret-at-least-128-bits-long!!' --scenario timer-lifecycle
+dotnet run --project apps/spec -- test --target http --url http://localhost:3000 --jwt-secret 'dev-secret-at-least-128-bits-long!!' --scenario timer-create-only
+dotnet run --project apps/spec -- test --target http --url http://localhost:3000 --jwt-secret 'dev-secret-at-least-128-bits-long!!' --scenario timer-slug-race
+```
+
+### Stdio (Go binary)
+
+```sh
+dotnet run --project apps/spec -- test --target stdio --scenario timer-lifecycle
+dotnet run --project apps/spec -- test --target stdio --scenario timer-create-only
+dotnet run --project apps/spec -- test --target stdio --scenario timer-slug-race   # passes — stdin serializes concurrent requests
+```
+
+### Conformance
+
+```sh
+# All three targets in one run
+dotnet run --project apps/spec -- conformance --targets inmemory,http,stdio \
+  --url http://localhost:3000 \
+  --jwt-secret 'dev-secret-at-least-128-bits-long!!'
+```
+
+## How it works
+
+Three targets implement the same timer API — create by slug + deadline, auto-transitions `Active → Completed` on expiry:
+
+| Target | Language | Transport |
+|--------|----------|-----------|
+| `inmemory` | C# | Direct calls |
+| `http` | TypeScript/Bun | HTTP + JWT |
+| `stdio` | Go | JSON-lines over stdin/stdout |
+
+The spec defines `CreateTimer` + `GetTimer` operations and invariants (`no duplicate slugs`, `all timer IDs are version 7`). Accordant generates sequential and concurrent tests, runs them against each target, and asserts identical behavior.
+
+The race scenario catches a TOCTOU gap: checking for a duplicate slug and then inserting with no lock in between. In-memory fixes it with `SemaphoreSlim`, HTTP with a promise-chain lock. Stdio passes trivially — stdin serializes concurrent requests.

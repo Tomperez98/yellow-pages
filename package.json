@@ -5,9 +5,7 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
-    "tests": "turbo run tests",
-    "compliance": "bun run --cwd apps/stdio build && bun run apps/server/src/index.ts & sleep 2 && dotnet run --project apps/spec -- conformance --targets inmemory,http,stdio --url http://localhost:3000 --jwt-secret dev-secret-at-least-128-bits-long!!; kill %1",
-    "conformance": "bun run --cwd apps/stdio build && dotnet run --project apps/spec -- conformance --targets inmemory,stdio"
+    "tests": "turbo run tests"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.5",

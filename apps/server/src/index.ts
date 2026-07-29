@@ -1,5 +1,23 @@
 import jwt from "jsonwebtoken";
 
+// ---------- Mutex ----------
+// ponytail: promise-chain lock, per-account if contention matters
+let lock: Promise<void> = Promise.resolve();
+function withLock<T>(fn: () => T | Promise<T>): Promise<T> {
+	const prev = lock;
+	let release!: () => void;
+	lock = new Promise<void>((res) => {
+		release = res;
+	});
+	return prev.then(async () => {
+		try {
+			return await fn();
+		} finally {
+			release();
+		}
+	});
+}
+
 // ---------- JWT claims ----------
 interface Claims {
 	sub: string;
@@ -37,23 +55,26 @@ setInterval(() => {
 }, DEADLINE_CHECK_MS);
 
 // ---------- Handlers ----------
-function createTimer(
+async function createTimer(
 	slug: string,
 	deadline: string,
 	role: string,
-): ResponseResult {
+): Promise<ResponseResult> {
 	if (role !== "user") return { status: 403, error: "Not authorized" };
 	if (!slug || slug.trim().length === 0)
 		return { status: 400, error: "Slug cannot be empty" };
-	if (timers.some((t) => t.slug === slug))
-		return { status: 409, error: "Timer with this slug already exists" };
 
-	const id = Bun.randomUUIDv7();
-	timers.push({ id, slug, deadline, status: "Active" });
-	return { status: 201, data: { TimerId: id } };
+	return withLock(() => {
+		if (timers.some((t) => t.slug === slug))
+			return { status: 409, error: "Timer with this slug already exists" };
+
+		const id = Bun.randomUUIDv7();
+		timers.push({ id, slug, deadline, status: "Active" });
+		return { status: 201, data: { TimerId: id } };
+	});
 }
 
-function getTimer(id: string, role: string): ResponseResult {
+async function getTimer(id: string, role: string): Promise<ResponseResult> {
 	if (role !== "user") return { status: 403, error: "Not authorized" };
 
 	const timer = timers.find((t) => t.id === id);
@@ -98,7 +119,7 @@ Bun.serve({
 			body = {};
 		}
 
-		const result = route.handler(body, claims.role);
+		const result = await route.handler(body, claims.role);
 		return respond(result);
 	},
 });
@@ -107,7 +128,10 @@ type ResponseResult =
 	| { status: number; data: unknown }
 	| { status: number; error: string };
 
-type Handler = (body: Record<string, unknown>, role: string) => ResponseResult;
+type Handler = (
+	body: Record<string, unknown>,
+	role: string,
+) => Promise<ResponseResult>;
 
 function respond(result: ResponseResult): Response {
 	const payload = "error" in result ? { error: result.error } : result.data;

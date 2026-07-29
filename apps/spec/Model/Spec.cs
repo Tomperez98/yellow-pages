@@ -71,6 +71,10 @@ public static class TimerSpec
                                 s.Items.Select(t => t.Slug).Distinct().Count() == s.Items.Count,
                                 "duplicate slugs"
                             );
+                            Invariant.Assert(
+                                s.Items.All(t => t.Id.Version == 7),
+                                "all timer IDs must be version 7"
+                            );
                         },
                         mock: () => new CreateTimerResponse.Created(Guid.CreateVersion7())
                     )
