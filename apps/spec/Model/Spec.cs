@@ -78,9 +78,8 @@ public static class TimerSpec
                         AsyncOperation.Create<TimerState>(
                             isTerminal: s =>
                             {
-                                var timer = s.Items.FirstOrDefault(t => t.Slug == req.Slug);
-                                Invariant.Assert(timer is not null, "timer must exist");
-                                return timer!.Status == TimerStatus.Completed;
+                                var timer = s.Items.First(t => t.Slug == req.Slug);
+                                return timer.Status == TimerStatus.Completed;
                             },
                             transitions:
                             [
