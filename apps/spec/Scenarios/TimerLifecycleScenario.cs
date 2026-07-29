@@ -4,9 +4,8 @@ using Spec.Model;
 namespace Spec.Scenarios;
 
 /// <summary>
-/// Full lifecycle: create timers with future and past deadlines,
-/// exercise slug conflict, and let the async step function complete
-/// the past-deadline timer.
+/// Full lifecycle: create a timer with a near-future deadline and let
+/// the async step function transition it to Completed.
 /// </summary>
 public class TimerLifecycleScenario : IScenario
 {
@@ -17,6 +16,10 @@ public class TimerLifecycleScenario : IScenario
     {
         var create = spec.GetOperation<CreateTimerRequest, CreateTimerResponse>("CreateTimer");
 
+        // This is the only scenario that polls: we need to observe the
+        // async Active → Completed transition, so we configure a derivation
+        // (CreateTimer response → GetTimer request) and tell the framework
+        // to poll GetTimer until isTerminal returns true.
         spec.ConfigureDerivations(
             "GetTimer",
             Derive

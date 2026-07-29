@@ -17,19 +17,30 @@ Create a timer with a user-defined **slug** (unique) and a **deadline**. The tim
 
 | Scenario | Mode | What it tests |
 |----------|------|---------------|
-| `timer-lifecycle` | Sequential | Create with future + near-future deadline (5s), duplicate slug, empty slug. Polls `GetTimer` until the 5s timer completes. |
+| `timer-lifecycle` | Sequential | Create a timer with a 5s deadline, poll `GetTimer` until the async step function transitions it to `Completed`. |
 | `timer-create-only` | Sequential | Create-only: validation branches (Forbidden, BadRequest, Conflict) |
 | `timer-slug-race` | Concurrent | Two users create the same slug concurrently — TOCTOU race detected by the invariant |
 
-### Polling — async step function resolution
+### Async step function resolution
 
-`TimerLifecycleScenario` creates a timer with a deadline 5 seconds in the future. The spec declares that background work transitions it to `Completed`:
+`TimerLifecycleScenario` uses `CreateTimer` with a deadline 5 seconds in the future. The spec's `CreateTimer` operation triggers the async deadline monitor that transitions `Active → Completed`:
 
 ```csharp
 .Triggers(AsyncOperation.Create<TimerState>(
-    isTerminal: s => !s.Items.Any(t =>
-        t.Status == TimerStatus.Active && t.Deadline < DateTime.UtcNow),
-    transitions: ... // Active → Completed for past-deadline items
+    isTerminal: s =>
+    {
+        var timer = s.Items.FirstOrDefault(t => t.Slug == req.Slug);
+        Invariant.Assert(timer is not null, "timer must exist");
+        return timer!.Status == TimerStatus.Completed;
+    },
+    transitions:
+    [
+        next =>
+        {
+            var timer = next.Items.First(t => t.Slug == req.Slug);
+            timer.Status = TimerStatus.Completed;
+        },
+    ]
 ))
 ```
 
@@ -46,6 +57,8 @@ create.With(req, "Create near-future timer")
 ```
 
 A derivation maps the `CreateTimer` response to a `GetTimer` polling request. The background `RunDeadlineMonitor` (500ms interval) fires after the deadline, the framework observes `Completed` via polling, and the step function terminates.
+
+Non-lifecycle scenarios skip async resolution with `.WithoutPolling()` on the operation inputs (and `UnwindAllTerminatingStepFunctions = false` for concurrent tests to avoid segment name collisions during generation).
 
 ### Race condition detection
 

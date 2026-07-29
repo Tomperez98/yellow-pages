@@ -5,7 +5,7 @@ namespace Spec.Scenarios;
 
 /// <summary>
 /// Create-only: exercises validation branches (Forbidden, BadRequest,
-/// Conflict) plus successful creation with the async deadline trigger.
+/// Conflict) plus successful creation.
 /// </summary>
 public class TimerCreateOnlyScenario : IScenario
 {
@@ -16,10 +16,22 @@ public class TimerCreateOnlyScenario : IScenario
     {
         var create = spec.GetOperation<CreateTimerRequest, CreateTimerResponse>("CreateTimer");
 
+        // .WithoutPolling() tells the framework: "don't resolve the async
+        // step function during test execution." We don't need to observe
+        // timers reaching Completed here — this scenario only tests that
+        // validation branches return the right responses.
+        // .WithoutPolling() tells the framework: skip resolving the async
+        // step function during test execution. This scenario only checks that
+        // validation branches return the right responses — it doesn't need
+        // to wait for timers to reach Completed.
         var inputs = new InputSet
         {
-            create.With(new CreateTimerRequest(User, "tea", Deadline), "Create tea timer"),
-            create.With(new CreateTimerRequest(User, "coffee", Deadline), "Create coffee timer"),
+            create
+                .With(new CreateTimerRequest(User, "tea", Deadline), "Create tea timer")
+                .WithoutPolling(),
+            create
+                .With(new CreateTimerRequest(User, "coffee", Deadline), "Create coffee timer")
+                .WithoutPolling(),
             create.With(new CreateTimerRequest(User, "", Deadline), "Empty slug"),
         };
 

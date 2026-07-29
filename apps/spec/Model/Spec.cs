@@ -80,8 +80,7 @@ public static class TimerSpec
                             {
                                 var timer = s.Items.FirstOrDefault(t => t.Slug == req.Slug);
                                 Invariant.Assert(timer is not null, "timer must exist");
-                                return timer!.Status != TimerStatus.Active
-                                    || timer.Deadline >= DateTime.UtcNow;
+                                return timer!.Status == TimerStatus.Completed;
                             },
                             transitions:
                             [

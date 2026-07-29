@@ -25,23 +25,40 @@ public class TimerSlugRaceScenario : IScenario
     {
         var create = spec.GetOperation<CreateTimerRequest, CreateTimerResponse>("CreateTimer");
 
+        // .WithoutPolling() skips async resolution during execution — this
+        // scenario only cares about the concurrent create responses, not
+        // whether the timers eventually reach Completed.
         var inputs = new InputSet
         {
-            create.With(
-                new CreateTimerRequest(UserA, "shared-slug", Deadline),
-                "User A creates timer with shared slug"
-            ),
-            create.With(
-                new CreateTimerRequest(UserB, "shared-slug", Deadline),
-                "User B creates timer with same slug"
-            ),
+            create
+                .With(
+                    new CreateTimerRequest(UserA, "shared-slug", Deadline),
+                    "User A creates timer with shared slug"
+                )
+                .WithoutPolling(),
+            create
+                .With(
+                    new CreateTimerRequest(UserB, "shared-slug", Deadline),
+                    "User B creates timer with same slug"
+                )
+                .WithoutPolling(),
         };
 
+        // UnwindAllTerminatingStepFunctions = false prevents the framework
+        // from exploring the async step function completion during concurrent
+        // test generation. Without this, the generated test cases include
+        // unwind segments whose names collide with the original inputs,
+        // violating Accordant's uniqueness constraint across segments.
         return new TestSuite.Concurrent(
             spec.GenerateConcurrentTests(
                 initialState,
                 inputs,
-                new() { MaxDepth = 3, MaxConcurrencyLevel = 2 }
+                new()
+                {
+                    MaxDepth = 3,
+                    MaxConcurrencyLevel = 2,
+                    UnwindAllTerminatingStepFunctions = false,
+                }
             )
         );
     }
