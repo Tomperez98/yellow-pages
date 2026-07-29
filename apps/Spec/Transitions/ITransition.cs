@@ -1,5 +1,5 @@
 using Microsoft.Accordant;
-using spec;
+using Spec;
 using Spec.Model;
 
 namespace Spec.Transitions;

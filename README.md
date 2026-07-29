@@ -17,52 +17,52 @@ bun run apps/server/src/index.ts
 
 ```sh
 # List what's available
-dotnet run --project apps/Spec -- list-scenarios    # timer-lifecycle, timer-create-only, timer-slug-race
-dotnet run --project apps/Spec -- list-transitions  # timer-lifecycle
-dotnet run --project apps/Spec -- list-targets      # inmemory, http, stdio
+dotnet run --project apps/spec -- list-scenarios    # timer-lifecycle, timer-create-only, timer-slug-race
+dotnet run --project apps/spec -- list-transitions  # timer-lifecycle
+dotnet run --project apps/spec -- list-targets      # inmemory, http, stdio
 ```
 
 ### In-memory (no server needed)
 
 ```sh
-dotnet run --project apps/Spec -- test --target inmemory --scenario timer-lifecycle
-dotnet run --project apps/Spec -- test --target inmemory --scenario timer-create-only
-dotnet run --project apps/Spec -- test --target inmemory --scenario timer-slug-race
+dotnet run --project apps/spec -- test --target inmemory --scenario timer-lifecycle
+dotnet run --project apps/spec -- test --target inmemory --scenario timer-create-only
+dotnet run --project apps/spec -- test --target inmemory --scenario timer-slug-race
 
 # Race condition: with lock → pass, without → fail
-dotnet run --project apps/Spec -- test --target inmemory --scenario timer-slug-race --no-lock
+dotnet run --project apps/spec -- test --target inmemory --scenario timer-slug-race --no-lock
 ```
 
 ### HTTP (Bun server must be running)
 
 ```sh
-dotnet run --project apps/Spec -- test --target http --url http://localhost:3000 --scenario timer-lifecycle
-dotnet run --project apps/Spec -- test --target http --url http://localhost:3000 --scenario timer-create-only
-dotnet run --project apps/Spec -- test --target http --url http://localhost:3000 --scenario timer-slug-race
+dotnet run --project apps/spec -- test --target http --url http://localhost:3000 --scenario timer-lifecycle
+dotnet run --project apps/spec -- test --target http --url http://localhost:3000 --scenario timer-create-only
+dotnet run --project apps/spec -- test --target http --url http://localhost:3000 --scenario timer-slug-race
 ```
 
 ### Stdio (Go binary)
 
 ```sh
-dotnet run --project apps/Spec -- test --target stdio --scenario timer-lifecycle
-dotnet run --project apps/Spec -- test --target stdio --scenario timer-create-only
-dotnet run --project apps/Spec -- test --target stdio --scenario timer-slug-race   # passes — stdin serializes concurrent requests
+dotnet run --project apps/spec -- test --target stdio --scenario timer-lifecycle
+dotnet run --project apps/spec -- test --target stdio --scenario timer-create-only
+dotnet run --project apps/spec -- test --target stdio --scenario timer-slug-race   # passes — stdin serializes concurrent requests
 ```
 
 ### Transitions (hand-written conformance tests)
 
 ```sh
 # Like unit tests, but every response is validated by the Accordant model
-dotnet run --project apps/Spec -- transition --target inmemory --transition timer-lifecycle
-dotnet run --project apps/Spec -- transition --target stdio --transition timer-lifecycle
-dotnet run --project apps/Spec -- transition --target http --url http://localhost:3000 --transition timer-lifecycle
+dotnet run --project apps/spec -- transition --target inmemory --transition timer-lifecycle
+dotnet run --project apps/spec -- transition --target stdio --transition timer-lifecycle
+dotnet run --project apps/spec -- transition --target http --url http://localhost:3000 --transition timer-lifecycle
 ```
 
 ### Conformance
 
 ```sh
 # All three targets in one run
-dotnet run --project apps/Spec -- conformance --targets inmemory,http,stdio \
+dotnet run --project apps/spec -- conformance --targets inmemory,http,stdio \
   --url http://localhost:3000
 ```
 

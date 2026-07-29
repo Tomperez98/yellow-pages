@@ -3,7 +3,7 @@ using Microsoft.Accordant;
 using Spec.Model;
 using Spec.Targets;
 
-namespace spec;
+namespace Spec;
 
 public class ApiClient(ITarget target)
 {

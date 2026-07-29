@@ -1,6 +1,6 @@
 using ConsoleAppFramework;
 using Microsoft.Accordant;
-using spec;
+using Spec;
 using Spec.Model;
 using Spec.Scenarios;
 using Spec.Targets;
