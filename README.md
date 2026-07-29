@@ -62,8 +62,7 @@ dotnet run --project apps/spec -- transition --target http --url http://localhos
 
 ```sh
 # All three targets in one run
-dotnet run --project apps/spec -- conformance --targets inmemory,http,stdio \
-  --url http://localhost:3000
+dotnet run --project apps/spec -- conformance --targets inmemory,http,stdio --url http://localhost:3000
 ```
 
 ## How it works
