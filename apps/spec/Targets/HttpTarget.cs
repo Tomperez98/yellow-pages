@@ -43,6 +43,4 @@ public class HttpTarget(HttpClient http) : ITarget
 
         return new TargetResponse.Err(status, resp.ReasonPhrase!);
     }
-
-
 }

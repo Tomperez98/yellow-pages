@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -110,8 +111,8 @@ func handle(req Request) Response {
 // --- Handlers ---
 
 func createTimer(p CreatePayload) Response {
-	if p.Slug == "" {
-		return Response{Status: 400, Error: "Slug cannot be empty"}
+	if len(strings.TrimSpace(p.Slug)) == 0 {
+		return Response{Status: 400, Error: "Slug cannot be empty or whitespace"}
 	}
 	for _, t := range timers {
 		if t.Slug == p.Slug {

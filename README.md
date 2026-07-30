@@ -1,91 +1,77 @@
 # Timer Spec
 
-Spec-driven conformance testing for a timer API, using [Microsoft Accordant](https://github.com/microsoft/accordant). One spec, three independent implementations — must behave identically.
+Spec-driven conformance testing for a timer API, using [Microsoft Accordant](https://github.com/microsoft/accordant) and [xUnit](https://xunit.net/). One spec, three independent implementations — must behave identically.
+
+A single `dotnet test` runs every test against every available backend. No env-var switching required.
 
 ## Quick start
 
 ```sh
-# 1. Build
-bun run build
-
-# 2. Start the Bun server
-bun run apps/server/src/index.ts
-# → Server running on http://localhost:3000
+bun run build        # build all packages
+cd apps/spec && dotnet test  # run tests (in-memory, thread-safe)
 ```
 
-## Commands
+## Targets
+
+Three implementations behind a single `ITarget` interface:
+
+| Target | Language | Transport | Enabled by default |
+|--------|----------|-----------|---------------------|
+| `inmemory` | C# | Direct calls | Yes |
+| `http` | TypeScript/Bun | HTTP | Opt-in via `TIMER_URL` |
+| `stdio` | Go | JSON-lines via stdin/stdout | Opt-in via `TIMER_STDIO_PATH` |
+
+Every test is a `[Theory]` parameterized by target name via `TargetNames.All()`. The fixture creates all available targets and the test runner iterates over each. To add an optional target, set its environment variable:
 
 ```sh
-# List what's available
-dotnet run --project apps/spec -- list-scenarios    # timer-lifecycle, timer-create-only, timer-slug-race
-dotnet run --project apps/spec -- list-transitions  # timer-lifecycle
-dotnet run --project apps/spec -- list-targets      # inmemory, http, stdio
+# in-memory only (default)
+cd apps/spec && dotnet test
+
+# in-memory + HTTP
+cd apps/spec && TIMER_URL=http://localhost:3000 dotnet test
+
+# in-memory + stdio
+cd apps/spec && TIMER_STDIO_PATH=../../../../stdio/stdio dotnet test
+
+# all three
+cd apps/spec && TIMER_URL=http://localhost:3000 TIMER_STDIO_PATH=../../../../stdio/stdio dotnet test
 ```
 
-### In-memory (no server needed)
+No `TIMER_TARGET` variable — all available targets are exercised together.
+
+## Tests
+
+Three files under `Tests/`:
+
+### `TargetFixture.cs`
+
+Creates and manages the lifecycle of all available `ITarget` instances. Exposes `Clients` keyed by name, plus the static `TargetNames.All()` that `[MemberData]` references.
+
+### `ExampleTests.cs`
+
+Hand-written examples organized by concern:
+
+| Class | Tests | Parameterized |
+|-------|-------|:---:|
+| `ExampleCrudTests` | Create/Get valid/invalid/duplicate | Yes |
+| `ExampleLifecycleTests` | Auto-complete on deadline | Yes |
+| `ExampleConcurrencyTests` | Concurrent create race | Yes |
+| `ExampleRaceConditionTests` | Lock vs. no-lock TOCTOU | No |
+| `ExampleSpecValidatedTests` | End-to-end with `spec.Allows()` | Yes |
+
+### `GeneratedTests.cs`
+
+Accordant explores the full state space from the model in `Model/Operations.cs`, generating exhaustive sequential and concurrent test cases. Each runs against every target.
+
+## Race condition
+
+`InMemoryServer` uses `SemaphoreSlim` to serialize check-then-insert. Without it, two concurrent creates with the same slug both pass the existence check before either inserts.
+
+`ExampleRaceConditionTests` is the only test class not parameterized — it directly constructs `InMemoryTarget` with `threadSafe: true` vs. `threadSafe: false` to prove the lock works. These variants only apply to the in-memory implementation.
 
 ```sh
-dotnet run --project apps/spec -- test --target inmemory --scenario timer-lifecycle
-dotnet run --project apps/spec -- test --target inmemory --scenario timer-create-only
-dotnet run --project apps/spec -- test --target inmemory --scenario timer-slug-race
-
-# Race condition: with lock → pass, without → fail
-dotnet run --project apps/spec -- test --target inmemory --scenario timer-slug-race --no-lock
+cd apps/spec && dotnet test --filter "FullyQualifiedName~WithLock"     # always passes
+cd apps/spec && dotnet test --filter "FullyQualifiedName~WithoutLock"  # TOCTOU exposed
 ```
 
-### HTTP (Bun server must be running)
-
-```sh
-dotnet run --project apps/spec -- test --target http --url http://localhost:3000 --scenario timer-lifecycle
-dotnet run --project apps/spec -- test --target http --url http://localhost:3000 --scenario timer-create-only
-dotnet run --project apps/spec -- test --target http --url http://localhost:3000 --scenario timer-slug-race
-```
-
-### Stdio (Go binary)
-
-```sh
-dotnet run --project apps/spec -- test --target stdio --scenario timer-lifecycle
-dotnet run --project apps/spec -- test --target stdio --scenario timer-create-only
-dotnet run --project apps/spec -- test --target stdio --scenario timer-slug-race   # passes — stdin serializes concurrent requests
-```
-
-### Transitions (hand-written conformance tests)
-
-```sh
-# Like unit tests, but every response is validated by the Accordant model
-dotnet run --project apps/spec -- transition --target inmemory --transition timer-lifecycle
-dotnet run --project apps/spec -- transition --target stdio --transition timer-lifecycle
-dotnet run --project apps/spec -- transition --target http --url http://localhost:3000 --transition timer-lifecycle
-```
-
-### Conformance
-
-```sh
-# All three targets in one run
-dotnet run --project apps/spec -- conformance --targets inmemory,http,stdio --url http://localhost:3000
-```
-
-## How it works
-
-Three targets implement the same timer API — create by slug + deadline, auto-transitions `Active → Completed` on expiry:
-
-| Target | Language | Transport |
-|--------|----------|-----------|
-| `inmemory` | C# | Direct calls |
-| `http` | TypeScript/Bun | HTTP |
-| `stdio` | Go | JSON-lines over stdin/stdout |
-
-The spec defines `CreateTimer` + `GetTimer` operations and invariants (`no duplicate slugs`, `all timer IDs are version 7`). Accordant generates sequential and concurrent tests, runs them against each target, and asserts identical behavior.
-
-The race scenario catches a TOCTOU gap: checking for a duplicate slug and then inserting with no lock in between. In-memory fixes it with `SemaphoreSlim`, HTTP with a promise-chain lock. Stdio passes trivially — stdin serializes concurrent requests.
-
-### Scenarios vs Transitions
-
-| | Scenarios (`IScenario`) | Transitions (`ITransition`) |
-|---|---|---|
-| How tests are created | Generated from state graph | Hand-written, step by step |
-| Good for | Exploring state space, finding unknown bugs | Specific edge cases, regression tests |
-| Assertions | Automatic (model validates all responses) | Automatic (model validates all responses) |
-| Response access | Indirect (model picks inputs) | Direct (you hold the typed response) |
-
-Transitions are like unit tests validated by the spec — you write the exact sequence, capture responses, and branch on them. The Accordant model checks every response against what the spec permits. If a response isn't allowed, the transition fails with a conformance error.
+`GeneratedTests.Concurrent_SlugRace_AllPass` also probes the race surface — Accordant explores concurrent interleavings where the duplicate-slug invariant would fire.

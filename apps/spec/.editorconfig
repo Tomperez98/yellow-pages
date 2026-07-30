@@ -2,3 +2,8 @@
 dotnet_diagnostic.CA1822.severity = none
 dotnet_diagnostic.CA1816.severity = error
 dotnet_diagnostic.IDE0305.severity = error
+dotnet_diagnostic.IDE0290.severity = error
+dotnet_diagnostic.xUnit1042.severity = error
+dotnet_diagnostic.CA1859.severity = error
+dotnet_diagnostic.xUnit1033.severity = error
+dotnet_diagnostic.xUnit1045.severity = error
