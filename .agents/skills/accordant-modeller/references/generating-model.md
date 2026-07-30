@@ -2,6 +2,8 @@
 
 Reference for creating Protocol.cs, State.cs, and Operations.cs. Read this when generating or modifying model files.
 
+These files are the **specification** — you are describing what behaviour is acceptable, not implementing a service. Every `Expect.That(...)` is a predicate the real system must satisfy; every `Expect.OneOf(...)` acknowledges that the client can't distinguish between multiple valid outcomes. The model doesn't return concrete values — it checks whether returned values are correct. For server-generated fields (IDs, timestamps), use predicates (`r.Id != Guid.Empty`) rather than committing to specific values. The InMemoryServer that comes later will commit to concrete values — but it derives from this model, not the other way around.
+
 ## Step 1: Extract operations
 
 From the user's description, list every operation. For each, identify:
@@ -215,6 +217,8 @@ When adding a new operation to an existing `Create()` method, insert it before t
 
 ## Fault Injection (advanced — add when asked)
 
+This pattern models **indefinite failures** — ambiguous outcomes where the client can't know whether the server processed the request. It matters when the system calls external services across a network boundary and execution isn't protected by a DB transaction. For simple CRUD with a single database, skip it.
+
 When the user asks for fault injection support, add `InternalServerError` and `ServiceUnavailable` variants to every response record, a `FaultInjection?` field to every request, and `Expect.OneOf()` branches to mutating operations. This lets Accordant explore scenarios where the system crashes mid-operation, finding bugs in partial-failure handling.
 
 The mechanism is runtime-agnostic: every request carries an optional `FaultInjection?` field. Each target implementation interprets the fault flags its own way — the spec only cares about what the client can observe.
@@ -335,3 +339,52 @@ spec.Operation<CreateThingRequest, CreateThingResponse>("CreateThing", (req, sta
            });
 });
 ```
+
+## Request Derivations (advanced — add when asked)
+
+Request derivations teach the framework how to construct one operation's request from another operation's request and response. They're **only needed for generated test sequences** — not for manual conformance testing (`Allows`/`AllowsConcurrent`). Skip them unless the user explicitly wants generated sequences.
+
+**When you need derivations:** server-generated IDs, ETags, or tokens flow from one operation's response into another's request. The framework can't guess this relationship — you must declare it.
+
+**When you don't:** the client controls all identifiers (e.g., a key-value store where the client picks the key). The framework can construct valid requests without response data.
+
+### Syntax (inline operations)
+
+For operations defined with `spec.Operation<TReq, TResp>(...)`, use `ConfigureDerivations` after the operation definition:
+
+```csharp
+spec.Operation<CreateTodoRequest, CreateTodoResponse>("CreateTodo", (req, state) => { ... });
+spec.Operation<string, GetTodoResponse>("GetTodo", (todoId, state) => { ... });
+
+spec.ConfigureDerivations("GetTodo",
+    Derive.From<CreateTodoRequest, CreateTodoResponse, string>("CreateTodo")
+        .When((createReq, createResp) => createResp is CreateTodoResponse.Created)
+        .As((createReq, createResp) =>
+            ((CreateTodoResponse.Created)createResp).TodoId));
+```
+
+### Syntax (class-based operations)
+
+For operations extending `Operation<TReq, TResp, TState>`, override `DerivedFrom`:
+
+```csharp
+public class GetTodoOperation : Operation<string, GetTodoResponse, TodoState>
+{
+    public override IReadOnlyList<RequestDerivation> DerivedFrom =>
+    [
+        Derive.From<CreateTodoRequest, CreateTodoResponse, string>("CreateTodo")
+              .When((req, resp) => resp is CreateTodoResponse.Created)
+              .As((req, resp) => ((CreateTodoResponse.Created)resp).TodoId)
+    ];
+}
+```
+
+### Key rules
+
+- **`.When()` filters** which source responses produce a derivation. If the source operation failed (e.g., `Conflict`), the derivation is skipped. Always filter — don't derive from error responses.
+- **`.As()` factory** receives the source request and response, returns the derived request. Cast the response to the correct variant to extract fields.
+- **`.AsVariants()`** produces multiple derived requests from one source (e.g., after creating an order, derive both Approve and Reject requests). Each gets a string label used in test output.
+- **Polling**: when an operation triggers async work, derive the polling request from the source. Even if the client chose the ID, write the derivation — it tells the framework how to construct the poll request.
+- **Templates**: for derived requests that need extra data beyond the source response (e.g., a category field), use `RequestTemplates` in `TestGenerationOptions` and the three-argument `.As((req, resp, template) => ...)`.
+
+See [Accordant: Request Derivations](https://microsoft.github.io/accordant/docs/concepts/request-derivations.html) for full details.

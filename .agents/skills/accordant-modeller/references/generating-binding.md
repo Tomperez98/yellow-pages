@@ -2,6 +2,8 @@
 
 Reference for creating ITarget.cs, ApiClient.cs, and InMemoryTarget.cs. Read this when generating or modifying binding and target files.
 
+These files **derive artifacts from the model** — they don't define new behaviour, they translate the specification into runnable code. The InMemoryServer is a fake: it commits to single paths, returns concrete values (e.g. `Guid.CreateVersion7()` for IDs), and mirrors the model's guard clauses in the same order. This mirroring isn't coincidental — the fake's correctness depends on faithfully reproducing the model's logic. The ApiClient bridges Accordant's test engine to targets (in-memory or real HTTP). The ITarget is boilerplate that adapts any backend to the ApiClient.
+
 ## ITarget.cs
 
 This file is boilerplate — same structure every time, only the namespace changes:
@@ -219,7 +221,7 @@ The `request switch` must cover every request type. The `ToResult` switch must c
 
 ### InMemoryServer
 
-The InMemoryServer is a real in-memory implementation that mirrors the spec's guard clauses. Derive it from Operations.cs.
+The InMemoryServer is a real in-memory implementation that mirrors the spec's guard clauses. Derive it from Operations.cs. Keep it simple — no locks, no thread-safety flags. The purpose is to serve as a straightforward fake that matches the spec's behavior.
 
 **Structure:**
 ```csharp
@@ -227,22 +229,19 @@ public class InMemoryServer : IDisposable
 {
     private readonly ThingState _initial;
     private ThingState _state;
-    private readonly bool _threadSafe;
-    private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly CancellationTokenSource _backgroundCts = new();
 
-    public InMemoryServer(ThingState initialState, bool threadSafe = true, int backgroundCheckMs = 500)
+    public InMemoryServer(ThingState initialState, int backgroundCheckMs = 500)
     {
         _initial = Clone(initialState);
         _state = Clone(initialState);
-        _threadSafe = threadSafe;
         _ = RunBackgroundWork(backgroundCheckMs, _backgroundCts.Token);
     }
 ```
 
 **Method generation rules — for each operation:**
 
-1. **Input-only validations go first, outside the lock** — mirror the same checks from Operations.cs:
+1. **Input-only validations first** — mirror the same checks from Operations.cs:
 ```csharp
     public async Task<CreateThingResponse> CreateThingAsync(CreateThingRequest req)
     {
@@ -252,41 +251,28 @@ public class InMemoryServer : IDisposable
             return new CreateThingResponse.BadRequest();
 ```
 
-2. **State-dependent checks and mutations inside the lock:**
+2. **State-dependent checks and mutations:**
 ```csharp
-        if (_threadSafe) await _lock.WaitAsync();
-        try
-        {
-            if (_state.Items.Values.Any(t => t.Name == req.Name))
-                return new CreateThingResponse.Conflict();
+        if (_state.Items.Values.Any(t => t.Name == req.Name))
+            return new CreateThingResponse.Conflict();
 
-            await Task.Yield(); // simulate async gap
+        await Task.Yield(); // simulate async gap — enables TOCTOU race detection
 
-            var id = Guid.CreateVersion7();
-            _state.Items[id] = new ThingItem { Id = id, Name = req.Name, Priority = req.Priority };
-            return new CreateThingResponse.Created(id);
-        }
-        finally
-        {
-            if (_threadSafe) _lock.Release();
-        }
+        var id = Guid.CreateVersion7();
+        _state.Items[id] = new ThingItem { Id = id, Name = req.Name, Priority = req.Priority };
+        return new CreateThingResponse.Created(id);
     }
 ```
 
 3. **Success cases** create the response AND mutate `_state`. Use `Guid.CreateVersion7()` for server-generated IDs.
 
-4. **Read-only operations** use the lock for thread-safe reads but never mutate:
+4. **Read-only operations** never mutate:
 ```csharp
     public async Task<GetThingResponse> GetThingAsync(GetThingRequest req)
     {
-        if (_threadSafe) await _lock.WaitAsync();
-        try
-        {
-            if (!_state.Items.TryGetValue(req.Id, out var item))
-                return new GetThingResponse.NotFound();
-            return new GetThingResponse.Ok(item.Status);
-        }
-        finally { if (_threadSafe) _lock.Release(); }
+        if (!_state.Items.TryGetValue(req.Id, out var item))
+            return new GetThingResponse.NotFound();
+        return new GetThingResponse.Ok(item.Status);
     }
 ```
 
@@ -297,21 +283,17 @@ For each operation that has `.Triggers()` in Operations.cs, generate a backgroun
 ```csharp
     private async Task RunBackgroundWork(int intervalMs, CancellationToken ct)
     {
+        var rng = new Random();
         while (!ct.IsCancellationRequested)
         {
             await Task.Delay(intervalMs, ct);
-            if (_threadSafe) await _lock.WaitAsync(ct);
-            try
+            // For each spec trigger, iterate items matching the inverted isTerminal
+            foreach (var item in _state.Items.Values
+                .Where(t => /* INVERTED isTerminal condition */))
             {
-                // For each spec trigger, iterate items matching the inverted isTerminal
-                foreach (var item in _state.Items.Values
-                    .Where(t => /* INVERTED isTerminal condition */))
-                {
-                    // Apply each transition from the spec
-                    item.Status = ThingStatus.Completed; // from transition lambda
-                }
+                // Apply transition(s) from the spec
+                item.Status = ThingStatus.Completed; // from transition lambda
             }
-            finally { if (_threadSafe) _lock.Release(); }
         }
     }
 ```
@@ -324,11 +306,10 @@ For each operation that has `.Triggers()` in Operations.cs, generate a backgroun
 
 If there are **no Triggers** in the spec, omit the background loop and `_backgroundCts`:
 ```csharp
-    public InMemoryServer(ThingState initialState, bool threadSafe = true)
+    public InMemoryServer(ThingState initialState)
     {
         _initial = Clone(initialState);
         _state = Clone(initialState);
-        _threadSafe = threadSafe;
     }
 ```
 
@@ -344,16 +325,12 @@ If there are **no Triggers** in the spec, omit the background loop and `_backgro
     {
         _backgroundCts.Cancel();
         _backgroundCts.Dispose();
-        _lock.Dispose();
     }
 ```
 
-If no background work, the Dispose is simpler:
+If no background work, Dispose can be empty (no resources to clean up):
 ```csharp
-    public void Dispose()
-    {
-        _lock.Dispose();
-    }
+    public void Dispose() { }
 ```
 
 ### Clone
@@ -384,7 +361,7 @@ For dictionaries: iterate entries, creating new value objects for each. For list
 When adding a new operation:
 1. Add the request case to `AsyncSend`'s request switch
 2. Add all response variant cases to `ToResult`
-3. Add the new method to `InMemoryServer` following the guard clause mirroring rules
+3. Add the new method to `InMemoryServer` following the **same pattern as existing methods** — if existing methods use locks/SemaphoreSlim, your new method must too. If they're simple (no locks), keep it simple. Match the existing style exactly.
 4. If the operation has Triggers, add the background work to `RunBackgroundWork`
 5. Update `Clone` if state fields changed
 
@@ -407,34 +384,29 @@ For **mutating operations**, add two crash points:
         if (string.IsNullOrWhiteSpace(req.Name))
             return new CreateThingResponse.BadRequest();
 
-        // 2. CrashBeforeMutation — before the lock, state untouched
+        // 2. CrashBeforeMutation — state untouched
         if (req.Fault?.CrashBeforeMutation == true)
             throw new InvalidOperationException("Simulated crash before mutation");
 
-        // 3. State-dependent checks and mutation inside the lock
-        if (_threadSafe) await _lock.WaitAsync();
-        try
-        {
-            if (_state.Items.Values.Any(t => t.Name == req.Name))
-                return new CreateThingResponse.Conflict();
+        // 3. State-dependent checks
+        if (_state.Items.Values.Any(t => t.Name == req.Name))
+            return new CreateThingResponse.Conflict();
 
-            await Task.Yield();
+        await Task.Yield();
 
-            var id = Guid.CreateVersion7();
-            _state.Items[id] = new ThingItem { Id = id, Name = req.Name };
+        var id = Guid.CreateVersion7();
+        _state.Items[id] = new ThingItem { Id = id, Name = req.Name };
 
-            // 4. CrashAfterMutation — state changed, response lost
-            if (req.Fault?.CrashAfterMutation == true)
-                throw new InvalidOperationException("Simulated crash after mutation");
+        // 4. CrashAfterMutation — state changed, response lost
+        if (req.Fault?.CrashAfterMutation == true)
+            throw new InvalidOperationException("Simulated crash after mutation");
 
-            return new CreateThingResponse.Created(id);
-        }
-        finally { if (_threadSafe) _lock.Release(); }
+        return new CreateThingResponse.Created(id);
     }
 ```
 
 **Rules:**
-- `CrashBeforeMutation`: throw `InvalidOperationException` after input validations but **before** the lock. State is never touched.
-- `CrashAfterMutation`: mutate `_state` inside the lock, then throw **before** returning the success response. State changed but the client never finds out — this is the ambiguous case that `Expect.OneOf()` models.
+- `CrashBeforeMutation`: throw `InvalidOperationException` after input validations but **before** state-dependent checks. State is never touched.
+- `CrashAfterMutation`: mutate `_state`, then throw **before** returning the success response. State changed but the client never finds out — this is the ambiguous case that `Expect.OneOf()` models.
 - The exception type must be `InvalidOperationException`. The `InMemoryTarget.AsyncSend` method does NOT catch it, so the caller sees an unhandled exception (just like a real network timeout).
-- For **read-only operations**, only `CrashBeforeMutation` applies. Throw before or inside the lock, before returning. `CrashAfterMutation` has no meaning for reads.
+- For **read-only operations**, only `CrashBeforeMutation` applies. `CrashAfterMutation` has no meaning for reads.
